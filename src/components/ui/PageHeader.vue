@@ -1,6 +1,8 @@
 <script setup lang="ts">
-const props = defineProps<{
+defineProps<{
     title: string;
+    showBack?: boolean;
+    actions?: any;
 }>();
 </script>
 

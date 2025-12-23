@@ -18,7 +18,7 @@ const refresh = async () => {
 onMounted(refresh);
 
 const openNew = () => {
-    formData.value = { name: '', gstin: '', address: '', phone: '', email: '' };
+    formData.value = { name: '', gstin: '', address: '', deliveryAddress: '', phone: '', email: '' };
     isEditing.value = false;
     showModal.value = true;
 };
@@ -87,6 +87,7 @@ const save = async () => {
                 <span v-if="c.phone">{{ c.phone }}</span>
                 <span v-if="c.email">{{ c.email }}</span>
                 <span v-if="c.address" class="address">{{ c.address }}</span>
+                <span v-if="c.deliveryAddress" class="address" style="color: var(--color-primary); opacity: 0.8;">Del: {{ c.deliveryAddress }}</span>
             </div>
             <div class="actions">
                 <button @click="edit(c)" class="btn-icon"><Pencil :size="16"/></button>
@@ -106,6 +107,7 @@ const save = async () => {
                 <BaseInput label="Email" v-model="formData.email!" />
                 <div class="full-width">
                     <BaseInput label="Address" v-model="formData.address!" />
+                    <BaseInput label="Delivery Address" v-model="formData.deliveryAddress!" style="margin-top: 1rem;" />
                 </div>
             </div>
             <div class="modal-actions">

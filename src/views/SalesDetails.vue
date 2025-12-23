@@ -4,9 +4,10 @@ import { useRoute, useRouter } from 'vue-router';
 import { db, type Invoice, type InvoiceVersion } from '../db/db';
 import PageHeader from '../components/ui/PageHeader.vue';
 import BaseButton from '../components/ui/BaseButton.vue';
-import { Clock, Edit, CheckCircle, Printer, Download } from 'lucide-vue-next';
+import { Clock, Edit, CheckCircle, Printer, Download, Truck, FileText, ChevronDown } from 'lucide-vue-next';
 import { numberToWords } from '../utils/formatters';
-import { downloadInvoicePDF, printInvoicePDF } from '../services/pdfService';
+import { downloadInvoicePDF, printInvoicePDF, downloadChallanPDF, printChallanPDF } from '../services/pdfService';
+
 
 // Router
 const route = useRoute();
@@ -170,49 +171,98 @@ const setAsActive = async () => {
 const goToEdit = () => {
     if (!currentVersion.value) return;
     router.push({
-        path: `/invoices/edit/${invoice.value?.invoiceNumber}`,
+        path: `/sales/edit/${invoice.value?.invoiceNumber}`,
         query: { versionId: currentVersion.value.id }
     });
 };
 
-const downloadPDF = async () => {
+const showPrintMenu = ref(false);
+const showDownloadMenu = ref(false);
+
+const togglePrintMenu = () => { showPrintMenu.value = !showPrintMenu.value; showDownloadMenu.value = false; };
+const toggleDownloadMenu = () => { showDownloadMenu.value = !showDownloadMenu.value; showPrintMenu.value = false; };
+
+const handlePrintAction = (type: 'invoice' | 'ext' | 'int') => {
+    showPrintMenu.value = false;
     if (!currentVersion.value) return;
     const data = { ...currentVersion.value, invoiceNumber: invoice.value?.invoiceNumber };
-    downloadInvoicePDF(data);
+    
+    if (type === 'invoice') printInvoicePDF(data);
+    else printChallanPDF(data, type === 'ext' ? 'External' : 'Internal');
 };
 
-const printNative = () => {
+const handleDownloadAction = (type: 'invoice' | 'ext' | 'int') => {
+    showDownloadMenu.value = false;
     if (!currentVersion.value) return;
     const data = { ...currentVersion.value, invoiceNumber: invoice.value?.invoiceNumber };
-    printInvoicePDF(data);
+    
+    if (type === 'invoice') downloadInvoicePDF(data);
+    else downloadChallanPDF(data, type === 'ext' ? 'External' : 'Internal');
 };
+
+
 
 const formatDate = (d: any) => d ? new Date(d).toLocaleDateString('en-GB') : '-';
 const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
+
+
 </script>
 
 <template>
 <div v-if="!loading && invoice" class="view-wrapper">
-    <PageHeader :title="`Invoice ${invoice.invoiceNumber}`" :showBack="true" backUrl="/invoices">
+    <PageHeader :title="`Sale ${invoice.invoiceNumber}`" :showBack="true" backUrl="/sales">
         <template #title>
              <div class="header-title-split">
-                <span>Invoice</span>
-                <span class="header-ref-no">{{ invoice.invoiceNumber }}</span>
+                <span>Sale</span>
+                <span class="header-ref-no" style="margin-left: 0.5rem;">{{ invoice.invoiceNumber }}</span>
+                <span class="view-status-badge" :class="invoice.status === 'draft' ? 's-draft' : 's-final'">
+                    {{ invoice.status === 'draft' ? 'DRAFT' : 'FINAL' }}
+                </span>
              </div>
         </template>
         <template #actions>
             <div class="actions-group">
                 <!-- Print/Download Group -->
-                <div class="btn-group">
-                    <button @click="printNative" class="btn btn-secondary btn-icon-only-mobile" title="Print page">
-                        <Printer :size="18" />
-                        <span class="btn-text">Print</span>
-                    </button>
-                    <button @click="downloadPDF" class="btn btn-secondary btn-icon-only-mobile" title="Download PDF">
-                        <Download :size="18" />
-                        <span class="btn-text">Download</span>
-                    </button>
-                </div>
+                    <!-- Print Dropdown -->
+                    <div class="dropdown-wrapper">
+                        <button @click="togglePrintMenu" class="btn btn-secondary btn-icon-only-mobile" title="Print Options">
+                            <Printer :size="18" />
+                            <span class="btn-text">Print</span>
+                            <ChevronDown :size="14" style="margin-left: 4px; opacity: 0.7;" />
+                        </button>
+                        <div v-if="showPrintMenu" class="dropdown-menu">
+                            <button @click="handlePrintAction('invoice')" class="dropdown-item">
+                                <FileText :size="16" /> Invoice
+                            </button>
+                            <button @click="handlePrintAction('ext')" class="dropdown-item">
+                                <Truck :size="16" /> Ext. Challan
+                            </button>
+                            <button @click="handlePrintAction('int')" class="dropdown-item">
+                                <FileText :size="16" /> Int. Challan
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Download Dropdown -->
+                    <div class="dropdown-wrapper">
+                        <button @click="toggleDownloadMenu" class="btn btn-secondary btn-icon-only-mobile" title="Download Options">
+                            <Download :size="18" />
+                            <span class="btn-text">Download</span>
+                            <ChevronDown :size="14" style="margin-left: 4px; opacity: 0.7;" />
+                        </button>
+                        <div v-if="showDownloadMenu" class="dropdown-menu">
+                            <button @click="handleDownloadAction('invoice')" class="dropdown-item">
+                                <FileText :size="16" /> Invoice
+                            </button>
+                            <button @click="handleDownloadAction('ext')" class="dropdown-item">
+                                <Truck :size="16" /> Ext. Challan
+                            </button>
+                            <button @click="handleDownloadAction('int')" class="dropdown-item">
+                                <FileText :size="16" /> Int. Challan
+                            </button>
+                        </div>
+                    </div>
+                <!-- </div> removed extra closing div -->
 
                 <div class="divider-vertical"></div>
 
@@ -266,7 +316,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                 <div class="invoice-paper">
                     
                     <!-- SECTION 1: HEADER & COMPANY -->
-                    <header class="section-company">
+                    <header class="section-company" style="margin-bottom: 2rem;">
                         <!-- Line 0: Reference No (Center) -->
                         <div class="row-ref-center">
                             <span class="label">Reference No:</span>
@@ -316,6 +366,10 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                              <span class="value">{{ currentVersion.buyerDetails?.address }}</span>
                         </div>
                         <div class="row-gst-left"><span class="label">Customer GST:</span> <span class="value">{{ currentVersion.buyerDetails?.gstin }}</span></div>
+                        <div class="row-address-left" v-if="currentVersion.buyerDetails?.deliveryAddress">
+                             <span class="label">Delivery Address:</span>
+                             <span class="value">{{ currentVersion.buyerDetails.deliveryAddress }}</span>
+                        </div>
                     </section>
 
                     <!-- SECTION 3: ITEMS TABLE -->
@@ -324,7 +378,8 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                             <table class="compact-table">
                                 <thead>
                                     <tr>
-                                        <th style="width: 25%">Product</th>
+                                        <th style="width: 15%">Producer</th>
+                                        <th style="width: 20%">Product</th>
                                         <th style="width: 20%">Description</th>
                                         <th style="width: 8%">HSN</th>
                                         <th style="width: 6%">Bags</th>
@@ -336,6 +391,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                                 </thead>
                                 <tbody>
                                     <tr v-for="(item, idx) in currentVersion.items" :key="idx">
+                                        <td>{{ item.producerName || '---' }}</td>
                                         <td>{{ item.name }}</td>
                                         <td>{{ item.description }}</td>
                                         <td>{{ item.hsn }}</td>
@@ -347,6 +403,47 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </section>
+
+                    <!-- SECTION 3B: SUMMARY TABLE (Added) -->
+                    <section class="section-items" v-if="currentVersion.summaryItem || currentVersion.items.length">
+                        <div class="f-words-header">INVOICE SUMMARY</div>
+                        <div class="table-container">
+                             <table class="compact-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 30%">Description</th>
+                                        <th style="width: 10%">HSN</th>
+                                        <th style="width: 10%">Bags</th>
+                                        <th style="width: 10%">Qty</th>
+                                        <th style="width: 10%">Price</th>
+                                        <th style="width: 10%">Tax %</th>
+                                        <th style="width: 15%">Taxable</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-if="currentVersion.summaryItem">
+                                        <td>{{ currentVersion.summaryItem.description }}</td>
+                                        <td>{{ currentVersion.summaryItem.hsn }}</td>
+                                        <td class="text-right">{{ currentVersion.summaryItem.numberOfBags }}</td>
+                                        <td class="text-right">{{ currentVersion.summaryItem.quantity }}</td>
+                                        <td class="text-right">{{ formatCurrency(currentVersion.summaryItem.unitPrice) }}</td>
+                                        <td class="text-right">{{ currentVersion.summaryItem.taxRate }}%</td>
+                                        <td class="text-right val-cell">{{ formatCurrency(currentVersion.summaryItem.totalAmount || (currentVersion.summaryItem.quantity * currentVersion.summaryItem.unitPrice)) }}</td>
+                                    </tr>
+                                    <!-- Fallback for Old Versions without Summary Item -->
+                                    <tr v-else>
+                                         <td>{{ currentVersion.items[0]?.description || '---' }}</td>
+                                         <td>{{ currentVersion.items[0]?.hsn || '---' }}</td>
+                                         <td class="text-right">{{ currentVersion.items.reduce((s,i)=>s+(Number(i.numberOfBags)||0),0) }}</td>
+                                         <td class="text-right">{{ currentVersion.items.reduce((s,i)=>s+(Number(i.quantity)||0),0) }}</td>
+                                         <td class="text-right">{{ formatCurrency(currentVersion.items[0]?.unitPrice) }}</td>
+                                         <td class="text-right">{{ currentVersion.items[0]?.taxRate }}%</td>
+                                         <td class="text-right val-cell">{{ formatCurrency(currentVersion.subTotal) }}</td>
+                                    </tr>
+                                </tbody>
+                             </table>
                         </div>
                     </section>
 
@@ -405,6 +502,8 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                         <div class="f-cell f-empty"></div>
 
                     </section>
+
+                    <!-- Status View Removed (Only Edit via Form) -->
 
                 </div>
             </main>
@@ -673,12 +772,98 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
 
 @media (max-width: 640px) {
     .btn-text { display: none; }
-    .btn-icon-only-mobile { padding: 0.5rem; width: 36px; justify-content: center; } 
-    .actions-group { gap: 0.5rem; width: 100%; justify-content: center; } 
+    .btn-icon-only-mobile { 
+        padding: 0; 
+        width: 44px; 
+        height: 44px;
+        justify-content: center;
+        border: 1px solid var(--color-border);
+        background-color: var(--color-bg-card); /* Ensure better contrast */
+    } 
+    .actions-group { gap: 0.75rem; width: 100%; justify-content: center; } 
     .divider-vertical { margin: 0 0.2rem; }
     
     .btn-group {
         gap: 0.5rem;
     }
+}
+
+
+.view-status-badge {
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-top: 2px;
+    letter-spacing: 0.5px;
+}
+.s-draft { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+.s-final { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+
+.status-action-row-view {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+}
+
+/* Copy Toggle Styles from Form */
+.status-toggle-wrapper { display: flex; align-items: center; gap: 1rem; }
+.status-label { font-weight: 600; color: var(--color-fg-secondary); }
+.toggle-switch { position: relative; width: 140px; height: 36px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--color-bg-muted); transition: .4s; border-radius: 36px; border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between; padding: 0 10px; overflow: hidden; }
+.toggle-slider:before { position: absolute; content: ""; height: 28px; width: 28px; left: 4px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 2; }
+input:checked + .toggle-slider { background-color: var(--color-primary); border-color: var(--color-primary); }
+input:checked + .toggle-slider:before { transform: translateX(102px); }
+.toggle-text-draft, .toggle-text-final { font-size: 0.8rem; font-weight: 700; z-index: 1; user-select: none; }
+.toggle-text-draft { margin-left: 2rem; color: var(--color-fg-primary); opacity: 0.6; }
+.toggle-text-final { margin-right: 2rem; color: white; }
+input:checked + .toggle-slider .toggle-text-draft { opacity: 0; }
+input:not(:checked) + .toggle-slider .toggle-text-final { opacity: 0; }
+input:not(:checked) + .toggle-slider { background-color: #e5e5e5; }
+input:not(:checked) + .toggle-slider:before { background-color: #666; }
+
+/* Dropdown Styles */
+.dropdown-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.5rem;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    min-width: 160px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem;
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    color: var(--color-fg-primary);
+    cursor: pointer;
+    font-size: 0.9rem;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.dropdown-item:hover {
+    background: var(--color-bg-muted);
 }
 </style>

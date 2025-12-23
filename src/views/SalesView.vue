@@ -30,7 +30,8 @@ const enrichedInvoices = computed(() => {
             sellerName: ver?.sellerDetails?.name || '---',
             buyerName: ver?.buyerDetails?.name || '---',
             totalBags: ver?.items?.reduce((acc, i) => acc + (Number(i.numberOfBags) || 0), 0) || 0,
-            versionData: ver
+            versionData: ver,
+            status: (inv as any).status || 'final' // v4
         };
     }) || [];
 
@@ -87,9 +88,9 @@ const showPicker = (event: Event) => {
 
 <template>
 <div class="page-container">
-    <PageHeader title="Invoices" :showBack="true">
+    <PageHeader title="Sales" :showBack="true">
         <template #actions>
-            <router-link to="/invoices/new">
+            <router-link to="/sales/new">
                 <BaseButton class="btn-compact">
                     <span>Add<br>New</span>
                     <Plus :size="20"/>
@@ -103,7 +104,7 @@ const showPicker = (event: Event) => {
         <!-- Search -->
         <div class="search-bar">
             <Search :size="18" class="search-icon"/>
-            <input v-model="searchQuery" type="text" placeholder="Search invoice #, company, or customer..." class="search-input" />
+            <input v-model="searchQuery" type="text" placeholder="Search sales #, company, or customer..." class="search-input" />
         </div>
 
         <!-- Filters -->
@@ -131,20 +132,23 @@ const showPicker = (event: Event) => {
     <!-- Cards Grid -->
     <div class="grid">
         <div v-if="!filteredInvoices.length" class="empty-state">
-            <template v-if="searchQuery || dateStart || dateEnd">No invoices match your filters.</template>
-            <template v-else>No invoices found. Create your first invoice!</template>
+            <template v-if="searchQuery || dateStart || dateEnd">No sales match your filters.</template>
+            <template v-else>No sales found. Create your first sale!</template>
         </div>
 
         <div 
             v-for="inv in filteredInvoices" 
             :key="inv.id" 
             class="card invoice-card"
-            @click="$router.push(`/invoices/${inv.invoiceNumber}`)"
+            @click="$router.push(`/sales/${inv.invoiceNumber}`)"
             style="cursor: pointer;"
         >
             <!-- Header: Number & Date -->
             <div class="card-header">
                 <div class="inv-number">{{ inv.invoiceNumber }}</div>
+                <div class="status-badge" :class="inv.status === 'draft' ? 'status-draft' : 'status-final'">
+                    {{ inv.status === 'draft' ? 'DRAFT' : 'FINAL' }}
+                </div>
                 <div class="inv-date">{{ new Date(inv.date).toLocaleDateString('en-GB') }}</div>
             </div>
 
@@ -232,8 +236,20 @@ const showPicker = (event: Event) => {
     background: rgba(0,0,0,0.02); 
     border-bottom: 1px dashed var(--color-border); 
 }
+
 .inv-number { font-weight: 700; color: var(--color-primary); font-family: monospace; font-size: 0.9rem; letter-spacing: 0.5px; opacity: 0.9; }
 .inv-date { font-size: 0.75rem; color: var(--color-fg-secondary); font-weight: 500; }
+
+.status-badge {
+    font-size: 0.7rem;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+.status-draft { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+.status-final { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
 
 /* Body - Stacked Layout */
 .card-body { padding: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: center; }

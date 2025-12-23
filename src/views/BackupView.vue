@@ -100,6 +100,7 @@ const confirmRestore = async () => {
                 const fixDates = (list: any[]) => list.map(item => ({
                     ...item,
                     date: item.date ? new Date(item.date) : null,
+                    status: item.status || 'final', // Default to final for backward compatibility
                     createdAt: item.createdAt ? new Date(item.createdAt) : undefined
                 }));
 

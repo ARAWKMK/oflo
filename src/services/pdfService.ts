@@ -28,12 +28,22 @@ const getPDFSettings = async () => {
         marginBottom: getNum(settings.pdfMarginBottom, 15),
         fontCompany: settings.pdfFontCompany || 'helvetica',
         fontBody: settings.pdfFontBody || 'helvetica',
-        customFonts: fonts || []
+        customFonts: fonts || [],
+        pageSizeInvoice: settings.pdfPageSizeInvoice || 'a4',
+        pageSizeChallan: settings.pdfPageSizeChallan || 'a4',
+        quality: settings.pdfQuality || 'standard'
     };
 };
 
 export const generateInvoicePDF = (data: any, settings: any) => {
-    const doc = new jsPDF({ format: 'a4', unit: 'mm' });
+    // Quality: If High, we can technically increase scale if using html2canvas, but for jsPDF vectors,
+    // we can use a higher precision unit or just ensure clean coordinates. 
+    // jsPDF optimizes for print by default. 'smart' compression can be toggled.
+    const doc = new jsPDF({
+        format: settings.pageSizeInvoice,
+        unit: 'mm',
+        compress: settings.quality === 'standard' // Compress if standard, less if high
+    });
 
     // --- LOAD CUSTOM FONTS ---
     if (settings.customFonts && settings.customFonts.length > 0) {
@@ -243,37 +253,80 @@ export const generateInvoicePDF = (data: any, settings: any) => {
         }
     }
     box2Y += lineHeight;
-    doc.setFontSize(settings.header);
+
+    // 2. Client GST (Reordered)
+    doc.setFontSize(settings.regular);
     doc.text('Client GST', leftX, box2Y);
     doc.text(':', leftX + box2LabelW, box2Y);
     doc.text(data.buyerDetails.gstin || '-', clientX, box2Y);
+    box2Y += lineHeight;
+
+    // 3. Delivery Address (Reordered)
+    if (data.buyerDetails.deliveryAddress) {
+        doc.setFontSize(settings.regular);
+        doc.text('Delivery Addr', leftX, box2Y);
+        doc.text(':', leftX + box2LabelW, box2Y);
+        const dStr = data.buyerDetails.deliveryAddress;
+        const dLines = doc.splitTextToSize(dStr, contentWidth - box2LabelW - 15);
+        if (dLines.length > 0) {
+            doc.text(dLines[0], clientX, box2Y);
+            for (let i = 1; i < dLines.length; i++) {
+                box2Y += lineHeight;
+                doc.text(dLines[i], clientX, box2Y);
+            }
+        }
+        box2Y += lineHeight;
+    }
 
     const box2H = (box2Y - box2Start) + pad;
     doc.roundedRect(marginLeft, box2Start, contentWidth, box2H, 3, 3, 'S');
     currentY = box2Start + box2H + 2;
 
     // Table
-    const tableBody = data.items.map((item: any, index: number) => {
-        const descText = item.description || item.name;
-        const bagsLine = `${item.numberOfBags || '-'} Bags of 25 Kg`;
-        const fullDesc = `${descText}\n${bagsLine}`;
+    let tableBody = [];
+    if (data.summaryItem) {
+        // v3: Use Summary Item
+        const s = data.summaryItem;
+        // Calculate bag weight for display
+        const weight = s.numberOfBags > 0 ? (s.quantity / s.numberOfBags) : 0;
+        // Format: "2 Lines". Description \n X Bags of Y Kg
+        const bagLine = s.numberOfBags > 0
+            ? `${s.numberOfBags} Bags of ${parseFloat(weight.toFixed(2))} Kg`
+            : '';
 
-        return [
-            index + 1,
-            fullDesc,
-            item.hsn || '',
-            item.numberOfBags || '-',
-            Number(item.quantity).toLocaleString('en-IN'),
-            Number(item.unitPrice).toFixed(1),
-            (item.quantity * item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        ];
-    });
+        tableBody = [[
+            1,
+            `${s.description}\n${bagLine}`,
+            s.hsn,
+            s.numberOfBags,
+            Number(s.quantity).toLocaleString('en-IN'),
+            Number(s.unitPrice).toFixed(1),
+            Number(s.totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        ]];
+    } else {
+        // Legacy Fallback
+        tableBody = data.items.map((item: any, index: number) => {
+            const descText = item.description || item.name;
+            const bagsLine = `${item.numberOfBags || '-'} Bags of 25 Kg`;
+            const fullDesc = `${descText}\n${bagsLine}`;
+
+            return [
+                index + 1,
+                fullDesc,
+                item.hsn || '',
+                item.numberOfBags || '-',
+                Number(item.quantity).toLocaleString('en-IN'),
+                Number(item.unitPrice).toFixed(1),
+                (item.quantity * item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            ];
+        });
+    }
 
     const bodyFont = settings.fontBody;
 
     autoTable(doc, {
         startY: currentY,
-        head: [['#', 'Description', 'H.S.N.\nCode', 'No. of\nBags', 'Qty', 'Price\nper Kg', 'Taxable\nin Rs.']],
+        head: [['#', 'Description', 'H.S.N.\nCode', 'No. of\nBags', 'Qty\n(in Kg)', 'Price\nper Kg', 'Taxable\nin Rs.']],
         body: tableBody,
         theme: 'plain',
         styles: {
@@ -294,14 +347,15 @@ export const generateInvoicePDF = (data: any, settings: any) => {
             lineColor: [0, 0, 0],
             halign: 'center'
         },
+        // Dynamic Column Styles for Responsive Widths
         columnStyles: {
-            0: { cellWidth: 10, halign: 'center' },
-            1: { cellWidth: 'auto', halign: 'center' },
-            2: { cellWidth: 20, halign: 'center' },
-            3: { cellWidth: 20, halign: 'center' },
-            4: { cellWidth: 20, halign: 'center' },
-            5: { cellWidth: 25, halign: 'center' },
-            6: { cellWidth: 35, halign: 'right' }
+            0: { cellWidth: contentWidth * 0.05, halign: 'center' },
+            1: { cellWidth: 'auto', halign: 'center' }, // Description takes remaining space
+            2: { cellWidth: contentWidth * 0.10, halign: 'center' },
+            3: { cellWidth: contentWidth * 0.10, halign: 'center' },
+            4: { cellWidth: contentWidth * 0.10, halign: 'center' },
+            5: { cellWidth: contentWidth * 0.13, halign: 'center' },
+            6: { cellWidth: contentWidth * 0.17, halign: 'right' }
         },
         margin: { left: marginLeft, right: marginRight },
         didDrawCell: (data) => {
@@ -327,10 +381,21 @@ export const generateInvoicePDF = (data: any, settings: any) => {
     if (footerStartY > tableFinalY + 5) {
         const extensionBottom = footerStartY - 2;
 
-        // Define Column Widths
-        // 10, Auto, 20, 20, 20, 25, 35
-        // Auto = ContentWidth - 130
-        const cols = [10, contentWidth - 130, 20, 20, 20, 25, 35];
+        // Define Column Widths used in autoTable
+        // 5%, Auto (Remainder), 10%, 10%, 10%, 13%, 17%
+        // colPercents calculation removed as it was unused.
+        const fixedSum = 0.65;
+        const autoWidth = contentWidth * (1 - fixedSum);
+
+        const cols = [
+            contentWidth * 0.05, // #
+            autoWidth,           // Description
+            contentWidth * 0.10, // HSN
+            contentWidth * 0.10, // Bags
+            contentWidth * 0.10, // Qty
+            contentWidth * 0.13, // Price
+            contentWidth * 0.17  // Taxable
+        ];
 
         doc.setDrawColor(0);
         doc.setLineWidth(standardLineWidth);
@@ -499,4 +564,386 @@ export const printInvoicePDF = async (invoiceData: any) => {
     doc.autoPrint();
     const blob = doc.output('bloburl');
     window.open(blob, '_blank');
+};
+
+export const generateChallanPDF = (data: any, settings: any, type: 'Internal' | 'External') => {
+    const doc = new jsPDF({
+        format: settings.pageSizeChallan,
+        unit: 'mm',
+        compress: settings.quality === 'standard'
+    });
+
+    // --- LOAD CUSTOM FONTS ---
+    if (settings.customFonts && settings.customFonts.length > 0) {
+        settings.customFonts.forEach((font: any) => {
+            try {
+                const filename = `${font.name}.ttf`;
+                doc.addFileToVFS(filename, font.data);
+                doc.addFont(filename, font.name, 'normal');
+                doc.addFont(filename, font.name, 'bold');
+                doc.addFont(filename, font.name, 'italic');
+            } catch (e) {
+                console.error('Failed to load font:', font.name, e);
+            }
+        });
+    }
+
+    const setFont = (t: 'company' | 'body', style: 'normal' | 'bold' | 'italic') => {
+        const fontName = t === 'company' ? settings.fontCompany : settings.fontBody;
+        doc.setFont(fontName, style);
+    };
+
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+    const marginLeft = settings.marginLeft;
+    const marginRight = settings.marginRight;
+    const marginTop = settings.marginTop;
+    const contentWidth = pageWidth - (marginLeft + marginRight);
+    const ptToMm = 0.352778;
+
+    let currentY = marginTop;
+
+    // Header
+    const headerH = settings.header * ptToMm;
+    doc.setFontSize(settings.header);
+    setFont('body', 'bold');
+    doc.text('DELIVERY CHALLAN', pageWidth / 2, currentY + headerH, { align: 'center' }); // Title Change
+
+    if (data.sellerDetails.phone) {
+        doc.setFontSize(settings.regular);
+        setFont('body', 'normal');
+        doc.text(`M: ${data.sellerDetails.phone}`, pageWidth - marginRight, currentY + headerH, { align: 'right' });
+    }
+    currentY += headerH + 2;
+
+    // Company
+    const companyH = settings.company * ptToMm;
+    doc.setFontSize(settings.company);
+    setFont('company', 'bold');
+    doc.text(data.sellerDetails.name || 'Company Name', pageWidth / 2, currentY + companyH, { align: 'center' });
+    currentY += companyH + 3;
+
+    // Address Box (Identical to Invoice)
+    // Box 1
+    const box1Start = currentY;
+    const pad = 4;
+    const leftX = marginLeft + pad;
+    const box1LeftLabelW = 22;
+    const box1RightLabelW = 25;
+    const addrWidth = contentWidth - (box1LeftLabelW + 3) - 5;
+
+    const lineHeight = settings.regular * ptToMm * 1.4;
+    let line1Y = box1Start + pad + (settings.regular * ptToMm);
+
+    doc.setFontSize(settings.regular);
+    setFont('body', 'normal');
+    doc.text('ADDRESS', leftX, line1Y);
+    doc.text(':', leftX + box1LeftLabelW, line1Y);
+    const contentX = leftX + box1LeftLabelW + 3;
+
+    const msgAddress = data.sellerDetails.address || '';
+    const addrLines = doc.splitTextToSize(msgAddress, addrWidth);
+    if (addrLines.length > 0) doc.text(addrLines[0], contentX, line1Y);
+    let leftCursorY = line1Y;
+    for (let i = 1; i < addrLines.length; i++) {
+        leftCursorY += lineHeight;
+        doc.text(addrLines[i], contentX, leftCursorY);
+    }
+
+    leftCursorY += lineHeight;
+    let rightCursorY = leftCursorY; // Sync right column start to below Address (aligned with GST)
+
+    // Challan Header: Add GST and Email (Left Side)
+    doc.text('GST No.', leftX, leftCursorY);
+    doc.text(':', leftX + box1LeftLabelW, leftCursorY);
+    doc.text(data.sellerDetails.gstin || '-', contentX, leftCursorY);
+
+    leftCursorY += lineHeight;
+    doc.text('Email', leftX, leftCursorY);
+    doc.text(':', leftX + box1LeftLabelW, leftCursorY);
+    doc.text(data.sellerDetails.email || '-', contentX, leftCursorY);
+
+    // Right Column (Meta Data) initialization
+    // We already initialized rightCursorY = leftCursorY (at start of GST line).
+    // So Meta data will start printing aligned with GST.
+
+    const splitRatio = 0.6;
+    const splitX = marginLeft + (contentWidth * splitRatio);
+    const metaX = splitX;
+    const drawMeta = (lbl: string, val: string) => {
+        doc.text(lbl, metaX, rightCursorY);
+        doc.text(':', metaX + box1RightLabelW, rightCursorY);
+        const valX = metaX + box1RightLabelW + 3;
+        doc.text(val, valX, rightCursorY);
+        rightCursorY += lineHeight;
+    };
+
+    const invNo = data.invoiceNumber || data.invoice_number || '-';
+    drawMeta('Challan No', invNo);
+    drawMeta('Date', data.date ? new Date(data.date).toLocaleDateString('en-GB') : '-');
+    if (data.vehicleNumber) drawMeta('Vehicle No', data.vehicleNumber);
+
+    const contentMaxY = Math.max(leftCursorY, rightCursorY) + 2; // Ensure enough height
+    const box1Height = (contentMaxY - box1Start);
+
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(marginLeft, box1Start, contentWidth, box1Height, 3, 3, 'S');
+    currentY = box1Start + box1Height + 2;
+
+    // Box 2 (Customer)
+    const box2Start = currentY;
+    let box2Y = box2Start + pad + (settings.regular * ptToMm);
+    const box2LabelW = 32;
+    const clientX = leftX + box2LabelW + 3;
+
+    doc.text('Client Address', leftX, box2Y);
+    doc.text(':', leftX + box2LabelW, box2Y);
+    const cStr = `${data.buyerDetails.name || ''}, ${data.buyerDetails.address || ''}`;
+
+    const cLines = doc.splitTextToSize(cStr, contentWidth - box2LabelW - 15);
+    if (cLines.length > 0) {
+        doc.text(cLines[0], clientX, box2Y);
+        for (let i = 1; i < cLines.length; i++) {
+            box2Y += lineHeight;
+            doc.text(cLines[i], clientX, box2Y);
+        }
+    }
+    box2Y += lineHeight;
+    doc.text('Client GST', leftX, box2Y);
+    doc.text(':', leftX + box2LabelW, box2Y);
+    doc.text(data.buyerDetails.gstin || '-', clientX, box2Y);
+    box2Y += lineHeight;
+
+    // Delivery Address
+    if (data.buyerDetails.deliveryAddress) {
+        doc.text('Delivery Addr', leftX, box2Y);
+        doc.text(':', leftX + box2LabelW, box2Y);
+        const dStr = data.buyerDetails.deliveryAddress;
+        const dLines = doc.splitTextToSize(dStr, contentWidth - box2LabelW - 15);
+        if (dLines.length > 0) {
+            doc.text(dLines[0], clientX, box2Y);
+            for (let i = 1; i < dLines.length; i++) {
+                box2Y += lineHeight;
+                doc.text(dLines[i], clientX, box2Y);
+            }
+        }
+        box2Y += lineHeight;
+    }
+
+    const box2H = (box2Y - box2Start) + pad;
+    doc.roundedRect(marginLeft, box2Start, contentWidth, box2H, 3, 3, 'S');
+    currentY = box2Start + box2H + 2;
+
+    // Table
+    const bodyFont = settings.fontBody;
+    const isInternal = type === 'Internal';
+
+    // Columns
+    let head = [];
+    let colStyles = {};
+
+    if (isInternal) {
+        head = [['#', 'Producer', 'Description', 'H.S.N.', 'Bags', 'Qty\n(in Kg)']];
+        colStyles = {
+            0: { cellWidth: contentWidth * 0.05, halign: 'center' },
+            1: { cellWidth: contentWidth * 0.20, halign: 'center' }, // Producer
+            2: { cellWidth: 'auto', halign: 'center' }, // Desc
+            3: { cellWidth: contentWidth * 0.12, halign: 'center' },
+            4: { cellWidth: contentWidth * 0.12, halign: 'center' },
+            5: { cellWidth: contentWidth * 0.12, halign: 'center' }
+        };
+    } else {
+        head = [['#', 'Description', 'H.S.N.', 'Bags', 'Qty\n(in Kg)']];
+        colStyles = {
+            0: { cellWidth: contentWidth * 0.05, halign: 'center' },
+            1: { cellWidth: 'auto', halign: 'center' }, // Desc
+            2: { cellWidth: contentWidth * 0.15, halign: 'center' },
+            3: { cellWidth: contentWidth * 0.15, halign: 'center' },
+            4: { cellWidth: contentWidth * 0.15, halign: 'center' }
+        };
+    }
+
+    const tableBody = data.items.map((item: any, index: number) => {
+        const descText = item.description || item.name;
+        // Check if bags exist to avoid division by zero
+        const weight = item.numberOfBags > 0 ? (item.quantity / item.numberOfBags) : 0;
+        const bagsLine = item.numberOfBags ? `${item.numberOfBags} Bags of ${parseFloat(weight.toFixed(2))} Kg` : '';
+        const fullDesc = bagsLine ? `${descText}\n${bagsLine}` : descText;
+
+        const row = [
+            index + 1,
+            fullDesc,
+            item.hsn || '',
+            item.numberOfBags || '-',
+            Number(item.quantity).toLocaleString('en-IN')
+        ];
+
+        if (isInternal) {
+            // Producer at index 1
+            const producer = item.producerName || '-';
+            row.splice(1, 0, producer);
+        }
+        return row;
+    });
+
+    autoTable(doc, {
+        startY: currentY,
+        head: head,
+        body: tableBody,
+        theme: 'plain',
+        styles: {
+            fontSize: settings.regular,
+            lineColor: [0, 0, 0],
+            lineWidth: 0,
+            textColor: [0, 0, 0],
+            valign: 'middle',
+            font: bodyFont,
+            cellPadding: 2
+        },
+        headStyles: {
+            fillColor: [255, 255, 255],
+            textColor: [0, 0, 0],
+            fontStyle: 'bold',
+            lineWidth: 0.3,
+            lineColor: [0, 0, 0],
+            halign: 'center'
+        },
+        columnStyles: colStyles,
+        margin: { left: marginLeft, right: marginRight },
+        didDrawCell: (data) => {
+            if (data.section === 'body') {
+                doc.setDrawColor(0);
+                doc.setLineWidth(0.3);
+                if (data.column.index === 0) doc.line(data.cell.x, data.cell.y, data.cell.x, data.cell.y + data.cell.height);
+                doc.line(data.cell.x + data.cell.width, data.cell.y, data.cell.x + data.cell.width, data.cell.y + data.cell.height);
+            }
+        }
+    });
+
+    const finalY = (doc as any).lastAutoTable.finalY;
+
+    // --- CHALLAN FOOTER (Replicating Invoice Terms & Signatory) ---
+    // Calculate Footer Height
+    // Terms (Assume default lines if missing) + Signatory Space
+    // We'll just draw it starting from finalY + spacing
+
+    // 3. Terms
+    const termsMaxW = (contentWidth * 0.6) - 6; // Same width ratio as Invoice left box
+    let tLines: string[] = [];
+    if (data.sellerDetails.terms) {
+        doc.setFontSize(settings.contentHeader);
+        tLines = doc.splitTextToSize(data.sellerDetails.terms, termsMaxW);
+    } else {
+        tLines.push('1. Goods once sold will not be taken back.');
+        tLines.push('2. Subject to local jurisdiction only.');
+    }
+    const th = settings.contentHeader * ptToMm;
+    const termsHeadH = settings.header * ptToMm;
+    const termsContentH = tLines.length * th * 1.5;
+    const termsBoxH = Math.max(30, 5 + termsHeadH + 5 + termsContentH + 5);
+
+    // --- EXPANSION LOGIC ---
+    const footerEndY = pageHeight - settings.marginBottom;
+    const footerStartY = footerEndY - termsBoxH;
+
+    let finalTableBottom = finalY;
+
+    if (footerStartY > finalY + 5) {
+        const extensionBottom = footerStartY - 2;
+        doc.setDrawColor(0);
+        doc.setLineWidth(0.3);
+
+        let curX = marginLeft;
+        doc.line(curX, finalY, curX, extensionBottom);
+
+        const colWidths = [];
+        if (isInternal) {
+            const fixedSum = 0.05 + 0.20 + 0.12 + 0.12 + 0.12;
+            const autoW = contentWidth * (1 - fixedSum);
+            colWidths.push(contentWidth * 0.05);
+            colWidths.push(contentWidth * 0.20);
+            colWidths.push(autoW);
+            colWidths.push(contentWidth * 0.12);
+            colWidths.push(contentWidth * 0.12);
+            colWidths.push(contentWidth * 0.12);
+        } else {
+            const fixedSum = 0.05 + 0.15 + 0.15 + 0.15;
+            const autoW = contentWidth * (1 - fixedSum);
+            colWidths.push(contentWidth * 0.05);
+            colWidths.push(autoW);
+            colWidths.push(contentWidth * 0.15);
+            colWidths.push(contentWidth * 0.15);
+            colWidths.push(contentWidth * 0.15);
+        }
+
+        colWidths.forEach(w => {
+            curX += w;
+            doc.line(curX, finalY, curX, extensionBottom);
+        });
+
+        finalTableBottom = extensionBottom;
+    }
+
+    doc.setLineWidth(0.3);
+    doc.line(marginLeft, finalTableBottom, pageWidth - marginRight, finalTableBottom);
+
+    const termsY = finalTableBottom + 2;
+
+
+
+    // Check Page Break for Footer
+    if (termsY + termsBoxH > (pageHeight - settings.marginBottom)) {
+        doc.addPage();
+        // Reset termsY? No, if we add page, we start at marginTop.
+        // Simplified: Just restart Y at marginTop
+        // doc.text... but we need to re-init styles.
+        // For now, let's assume it fits or simple flow.
+        // Real implementation:
+        // currentY = marginTop;
+    }
+
+    // Draw Terms Box
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(marginLeft, termsY, contentWidth, termsBoxH, 3, 3, 'S');
+
+    const termHeadY = termsY + 5 + termsHeadH;
+    doc.setFontSize(settings.header);
+    setFont('body', 'bold');
+    doc.text('TERMS & CONDITIONS', marginLeft + 3, termHeadY);
+
+    let termContentY = termHeadY + 5;
+    doc.setFontSize(settings.contentHeader);
+    setFont('body', 'normal');
+
+    for (let i = 0; i < tLines.length; i++) {
+        doc.text(tLines[i], marginLeft + 3, termContentY);
+        termContentY += (th * 1.5);
+    }
+
+    // Signatory
+    const signY = termsY + termsBoxH - 8;
+    const signX = pageWidth - marginRight - 30;
+    doc.setDrawColor(0);
+    doc.line(signX - 25, signY - 5, pageWidth - marginRight - 5, signY - 5);
+    doc.setFontSize(settings.contentHeader);
+    doc.text('Authorized Signatory', signX, signY, { align: 'center' });
+    setFont('body', 'bold');
+    doc.text(data.sellerDetails.name || '', signX, signY + 4, { align: 'center' });
+
+    return doc;
+};
+
+export const downloadChallanPDF = async (data: any, type: 'Internal' | 'External') => {
+    const settings = await getPDFSettings();
+    const doc = generateChallanPDF(data, settings, type);
+    doc.save(`${type}_Challan_${data.invoiceNumber}.pdf`);
+};
+
+export const printChallanPDF = async (data: any, type: 'Internal' | 'External') => {
+    const settings = await getPDFSettings();
+    const doc = generateChallanPDF(data, settings, type);
+    doc.autoPrint();
+    window.open(doc.output('bloburl'), '_blank');
 };

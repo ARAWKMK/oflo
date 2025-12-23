@@ -14,18 +14,18 @@ import BackupView from './views/BackupView.vue';
 import ReportsView from './views/ReportsView.vue';
 // import InvoiceList from './components/invoices/InvoiceList.tsx';
 // import InvoiceForm from './components/invoices/InvoiceForm.tsx';
-import InvoicesView from './views/InvoicesView.vue';
-import InvoiceForm from './views/InvoiceForm.vue';
+import SalesView from './views/SalesView.vue';
+import SalesForm from './views/SalesForm.vue';
 
 // Router
 const router = createRouter({
     history: createWebHashHistory(),
     routes: [
         { path: '/', component: DashboardView },
-        { path: '/invoices', component: InvoicesView },
-        { path: '/invoices/new', component: InvoiceForm },
-        { path: '/invoices/:invoiceNo', component: () => import('./views/InvoiceDetails.vue') },
-        { path: '/invoices/edit/:invoiceNo', component: InvoiceForm },
+        { path: '/sales', component: SalesView },
+        { path: '/sales/new', component: SalesForm },
+        { path: '/sales/:invoiceNo', component: () => import('./views/SalesDetails.vue') },
+        { path: '/sales/edit/:invoiceNo', component: SalesForm },
         { path: '/companies', component: CompaniesView },
         { path: '/customers', component: CustomersView },
         { path: '/products', component: ProductsView },

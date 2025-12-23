@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted, type Ref, watch } from 'vue';
+import { ref, onMounted, onUnmounted, type Ref } from 'vue';
 import { liveQuery, type Subscription } from 'dexie';
 
 export function useLiveQuery<T>(

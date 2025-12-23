@@ -46,9 +46,9 @@ const navigateTo = (path: string) => {
             <h3>Products</h3>
             <div class="count">{{ counts.products }}</div>
         </div>
-        <div class="stat-card card clickable" @click="navigateTo('/invoices')">
+        <div class="stat-card card clickable" @click="navigateTo('/sales')">
             <div class="card-icon"><FileText :size="24" /></div>
-            <h3>Invoices</h3>
+            <h3>Sales</h3>
             <div class="count">{{ counts.invoices }}</div>
         </div>
         

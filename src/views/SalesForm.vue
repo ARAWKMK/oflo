@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, watch, onMounted } from 'vue';
+import { computed, reactive, watch, onMounted, ref } from 'vue';
 import { db, type InvoiceItem } from '../db/db';
 import { useRouter, useRoute } from 'vue-router';
 import { Trash2, Plus, Save } from 'lucide-vue-next';
@@ -30,8 +30,22 @@ const state = reactive({
     referenceNumber: '',
     date: new Date().toISOString().split('T')[0],
     vehicleNumber: '',
-    items: [] as any[]
+    deliveryAddress: '', // v3
+    summaryItem: { // v3
+        description: '',
+        hsn: '',
+        numberOfBags: 0,
+        quantity: 0,
+        unitPrice: 0,
+        taxRate: 18,
+        taxAmount: 0,
+        totalAmount: 0
+    },
+    items: [] as any[],
+    status: 'final' // v4 Default
 });
+
+const isLoading = ref(true); // Lock for initial load
 
 const isEditMode = computed(() => !!state.id);
 const customerOptions = computed(() => customers.value?.map(c => ({ id: c.id!, name: c.name })) || []);
@@ -71,6 +85,7 @@ onMounted(async () => {
                 state.date = ver.date.toISOString().split('T')[0];
                 state.vehicleNumber = ver.vehicleNumber || '';
                 state.referenceNumber = ver.referenceNumber;
+                state.deliveryAddress = ver.buyerDetails.deliveryAddress || ''; // v3
                 
                 state.items = ver.items.map(i => ({
                     productId: i.productId,
@@ -82,11 +97,28 @@ onMounted(async () => {
                     unitPrice: i.unitPrice,
                     taxRate: i.taxRate,
                     taxAmount: i.taxAmount,
-                    totalAmount: (i.quantity * i.unitPrice).toFixed(2)
+                    totalAmount: (i.quantity * i.unitPrice).toFixed(2),
+                    producerId: i.producerId, // v3
+                    producerName: i.producerName // v3
                 }));
+
+                // Load Summary if exists, else compute
+                if (ver.summaryItem) {
+                    state.summaryItem = { ...ver.summaryItem };
+                } else {
+                    computeSummary();
+                }
+
+                // Load Status (default final if missing)
+                state.status = (ver as any).status || 'final';
             }
         }
     }
+
+    // Release Lock after DOM updates
+    setTimeout(() => {
+        isLoading.value = false;
+    }, 100);
 });
 
 
@@ -112,6 +144,17 @@ watch(() => state.companyId, async (newId) => {
     }
 });
 
+// Auto-fill Delivery Address
+watch(() => state.customerId, (newId) => {
+    if (newId) {
+        const c = customers.value?.find(x => x.id === newId);
+        if (c) {
+             // Fallback to address if deliveryAddress not present (User requirement: "same as Client Address")
+             state.deliveryAddress = c.deliveryAddress || c.address; 
+        }
+    }
+});
+
 // Actions
 const addItem = () => {
     state.items.push({
@@ -124,7 +167,8 @@ const addItem = () => {
         unitPrice: 0,
         taxRate: 18,
         taxAmount: 0,
-        totalAmount: 0
+        totalAmount: 0,
+        producerId: '' // v3
     });
 };
 
@@ -159,23 +203,61 @@ const calculateRow = (row: any) => {
     row.totalAmount = base; 
 };
 
+const computeSummary = () => {
+    // Logic: Take 1st row attrs, Sum Qty/Bags
+    if (!state.items.length) return;
+    if (isLoading.value) return; // Prevent overwriting during load
+    
+    const first = state.items[0];
+    const sumBags = state.items.reduce((s, i) => s + (Number(i.numberOfBags)||0), 0);
+    const sumQty = state.items.reduce((s, i) => s + (Number(i.quantity)||0), 0);
+    // User Update: Taxable in Summary should be Qty * Price
+    const price = Number(first.unitPrice) || 0;
+    const rate = Number(first.taxRate) || 0;
+    
+    // Recalculate based on Summary Qty (Source of Truth for Tax Invoice)
+    const base = sumQty * price;
+    const tax = base * (rate / 100);
+
+    state.summaryItem = {
+        description: first.description,
+        hsn: first.hsn,
+        unitPrice: price,
+        taxRate: rate,
+        numberOfBags: sumBags,
+        quantity: sumQty,
+        taxAmount: Number(tax.toFixed(2)),
+        totalAmount: Number(base.toFixed(2)) // "Taxable" as per user request (was Total)
+    };
+};
+
+const recalculateSummary = () => {
+   // Triggered on Manual Edit of Summary Items
+   const s = state.summaryItem;
+   const qty = Number(s.quantity) || 0;
+   const price = Number(s.unitPrice) || 0;
+   const rate = Number(s.taxRate) || 0;
+   
+   const base = qty * price;
+   const tax = base * (rate / 100);
+   
+   s.taxAmount = Number(tax.toFixed(2));
+   s.totalAmount = Number(base.toFixed(2));
+};
+
+watch(() => state.items, computeSummary, { deep: true });
+
 const finance = computed(() => {
     const seller = companies.value?.find(c => c.id === state.companyId);
     const buyer = customers.value?.find(c => c.id === state.customerId);
     
-    let subTotal = 0;
-    let totalTax = 0;
-
-    state.items.forEach(item => {
-        const qty = Number(item.quantity) || 0;
-        const price = Number(item.unitPrice) || 0;
-        const base = qty * price;
-        const taxRate = Number(item.taxRate) || 0;
-        const tax = base * (taxRate / 100);
-        
-        subTotal += base;
-        totalTax += tax;
-    });
+    // User Update: Financials linked to Summary Table
+    const s = state.summaryItem;
+    const subTotal = Number(s.totalAmount) || 0; // Taxable Value
+    
+    // Re-verify Tax from SubTotal (Consistency)
+    const tax = subTotal * (Number(s.taxRate)/100 || 0.18);
+    const totalTax = Number(tax.toFixed(2));
 
     let taxType = 'IGST';
     let sgst = 0;
@@ -225,6 +307,9 @@ const save = async () => {
         const seller = JSON.parse(JSON.stringify(companies.value?.find(c => c.id === state.companyId)));
         const buyer = JSON.parse(JSON.stringify(customers.value?.find(c => c.id === state.customerId)));
         
+        // Update Snapshot with current Delivery Address
+        buyer.deliveryAddress = state.deliveryAddress;
+        
         if (!seller || !buyer) throw new Error("Invalid Selection");
 
         const finalItems: InvoiceItem[] = state.items.map(i => ({
@@ -237,7 +322,9 @@ const save = async () => {
             unitPrice: Number(i.unitPrice),
             taxRate: Number(i.taxRate),
             taxAmount: Number(((Number(i.quantity) * Number(i.unitPrice)) * (Number(i.taxRate) / 100)).toFixed(2)),
-            totalAmount: Number(((Number(i.quantity) * Number(i.unitPrice)) * (1 + Number(i.taxRate) / 100)).toFixed(2))
+            totalAmount: Number(((Number(i.quantity) * Number(i.unitPrice)) * (1 + Number(i.taxRate) / 100)).toFixed(2)),
+            producerId: i.producerId ? Number(i.producerId) : undefined,
+            producerName: i.producerId ? (companies.value?.find(c => c.id === Number(i.producerId))?.name) : undefined
         }));
 
         // console.log("Save: Starting Transaction");
@@ -270,6 +357,8 @@ const save = async () => {
                     roundOff: finance.value.roundOff,
                     referenceNumber: newRef,
                     taxType: finance.value.taxType as any,
+                    summaryItem: JSON.parse(JSON.stringify(state.summaryItem)), // v3 Fix Clone
+                    status: state.status as any, // v4
                     createdAt: new Date()
                 });
                 // console.log("Save: Added Version", newVerId);
@@ -277,7 +366,8 @@ const save = async () => {
                 await db.invoices.update(invId, { 
                     currentVersionId: Number(newVerId),
                     grandTotal: finance.value.grandTotal,
-                    date: new Date(state.date)
+                    date: new Date(state.date),
+                    status: state.status as any // v4
                 });
                 // console.log("Save: Updated Invoice Pointer");
 
@@ -306,20 +396,22 @@ const save = async () => {
                     roundOff: finance.value.roundOff,
                     referenceNumber: state.referenceNumber, 
                     taxType: finance.value.taxType as any,
+                    summaryItem: JSON.parse(JSON.stringify(state.summaryItem)), // v3 Fix Clone
+                    status: state.status as any, // v4
                     createdAt: new Date()
                 });
                 // console.log("Save: Added V1", v1Id);
                 
-                await db.invoices.update(invId, { currentVersionId: Number(v1Id) });
+                await db.invoices.update(invId, { currentVersionId: Number(v1Id), status: state.status as any });
             }
         });
 
         // console.log("Save: Complete");
-        alert('Invoice Saved Successfully');
+        alert('Sale Saved Successfully');
         if (state.id) {
-             router.push(`/invoices/${state.invoiceNumber}`);
+             router.push(`/sales/${state.invoiceNumber}`);
         } else {
-             router.push('/invoices');
+             router.push(`/sales`);
         }
        
     } catch (e: any) {
@@ -333,7 +425,7 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
 
 <template>
 <div class="page-container">
-    <PageHeader title="New Invoice" :showBack="true" />
+    <PageHeader title="New Sale" :showBack="true" />
 
     <div class="invoice-paper">
         
@@ -347,10 +439,11 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
 
             <!-- Line 1: Company Select (Center) -->
             <div class="row-company-select">
-                <select v-model="state.companyId" class="input-compact select-company">
+                <select v-model="state.companyId" class="input-compact select-company" :disabled="isEditMode">
                     <option value="" disabled>Select Company</option>
                     <option v-for="c in companyOptions" :value="c.id">{{ c.name }}</option>
                 </select>
+                <div v-if="isEditMode" style="font-size: 0.75rem; color: var(--color-fg-secondary); margin-top: 0.2rem;">(Cannot change Company on Edit)</div>
             </div>
 
             <template v-if="selectedCompany">
@@ -397,6 +490,12 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
                 </div>
                 <!-- GST Left -->
                 <div class="row-gst-left"><span class="label">Customer GST:</span> <span class="value">{{ selectedCustomer.gstin }}</span></div>
+                <!-- Delivery Address -->
+                <!-- Delivery Address -->
+                <div class="row-address-left" style="white-space: pre-wrap; margin-top: 0.5rem;">
+                    <span class="label">Delivery Address:</span>
+                    <span class="value">{{ state.deliveryAddress }}</span>
+                </div>
             </template>
         </section>
 
@@ -406,8 +505,9 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
                 <table class="compact-table">
                     <thead>
                         <tr>
-                            <th style="width: 25%">Product</th>
-                            <th style="width: 20%">Description</th>
+                            <th style="width: 15%">Producer</th>
+                            <th style="width: 20%">Product</th>
+                            <th style="width: 15%">Description</th>
                             <th style="width: 8%">HSN</th>
                             <th style="width: 6%">Bags</th>
                             <th style="width: 8%">Qty</th>
@@ -419,6 +519,12 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
                     </thead>
                     <tbody>
                         <tr v-for="(item, idx) in state.items" :key="idx">
+                            <td>
+                                <select v-model="item.producerId" class="input-compact select-table">
+                                    <option value="" disabled>Select</option>
+                                    <option v-for="c in companyOptions" :value="c.id">{{ c.name }}</option>
+                                </select>
+                            </td>
                             <td>
                                 <select v-model="item.productId" @change="onProductSelect(item, item.productId)" class="input-compact select-table">
                                     <option :value="0" disabled>Select</option>
@@ -441,6 +547,36 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
             <div class="table-actions">
                  <BaseButton variant="secondary" @click="addItem" class="btn-add-sm"><Plus :size="14"/> Add Item</BaseButton>
             </div>
+        </section>
+
+        <section class="section-summary-item" style="margin-top: 1rem;">
+             <div class="f-words-header">INVOICE SUMMARY (Auto-Calculated)</div>
+             <div class="table-container">
+                <table class="compact-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 30%">Description</th>
+                            <th style="width: 10%">HSN</th>
+                            <th style="width: 10%">Bags</th>
+                            <th style="width: 10%">Qty</th>
+                            <th style="width: 10%">Price</th>
+                            <th style="width: 10%">Tax %</th>
+                            <th style="width: 15%">Taxable</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><input v-model="state.summaryItem.description" class="input-compact" /></td>
+                            <td><input v-model="state.summaryItem.hsn" class="input-compact" /></td>
+                            <td><input type="number" v-model="state.summaryItem.numberOfBags" class="input-compact text-right" /></td>
+                            <td><input type="number" v-model="state.summaryItem.quantity" @input="recalculateSummary" class="input-compact text-right" /></td>
+                            <td><input type="number" v-model="state.summaryItem.unitPrice" @input="recalculateSummary" class="input-compact text-right" /></td>
+                            <td><input type="number" v-model="state.summaryItem.taxRate" @input="recalculateSummary" class="input-compact text-right" /></td>
+                            <td class="text-right val-cell">{{ state.summaryItem.totalAmount }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+             </div>
         </section>
 
         <hr class="separator" />
@@ -499,12 +635,25 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
 
         </section>
 
-        <!-- Save Button -->
-        <section class="action-bar">
+
+
+        <!-- Status Toggle & Save -->
+         <section class="status-action-row">
+            <div class="status-toggle-wrapper">
+                <span class="status-label">Status:</span>
+                <div class="toggle-switch">
+                    <input type="checkbox" id="statusToggle" v-model="state.status" true-value="final" false-value="draft">
+                    <label for="statusToggle" class="toggle-slider">
+                        <span class="toggle-text-draft">DRAFT</span>
+                        <span class="toggle-text-final">FINAL</span>
+                    </label>
+                </div>
+            </div>
+
             <button @click="save" class="btn btn-primary btn-save">
-                <Save :size="16"/> Save Invoice
+                <Save :size="16"/> Save Sale
             </button>
-        </section>
+         </section>
 
     </div>
 </div>
@@ -608,13 +757,133 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
 
 .placeholder-text { font-style: italic; color: var(--color-fg-secondary); opacity: 0.5; font-size: 0.9rem; }
 
-.action-bar { margin-top: 2rem; text-align: right; }
-.btn-save { padding: 0.8rem 3rem; font-size: 1.1rem; }
+/* Status Toggle Styles */
+.status-action-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 2rem;
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+}
+
+.status-toggle-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.status-label {
+    font-weight: 600;
+    color: var(--color-fg-secondary);
+}
+
+.toggle-switch {
+    position: relative;
+    width: 160px; /* Increased width for better visibility */
+    height: 36px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #1a1a1a;
+    transition: .4s;
+    border-radius: 36px;
+    border: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 5px; /* Reduced padding */
+    overflow: hidden;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 28px;
+    width: 28px;
+    left: 4px;
+    bottom: 3px;
+    background-color: var(--color-fg-primary);
+    transition: .4s;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+    z-index: 2;
+}
+
+input:checked + .toggle-slider {
+    background-color: rgba(var(--color-primary-rgb), 0.2);
+    border-color: var(--color-primary);
+}
+
+input:checked + .toggle-slider:before {
+    transform: translateX(122px); /* Adjusted for new width */
+    background-color: var(--color-primary);
+}
+
+.toggle-text-draft, .toggle-text-final {
+    font-size: 0.8rem;
+    font-weight: 800;
+    z-index: 1;
+    user-select: none;
+    letter-spacing: 0.5px;
+}
+
+.toggle-text-draft { margin-left: 2.2rem; color: #ef4444; opacity: 1; }
+.toggle-text-final { margin-right: 2.5rem; color: #22c55e; } /* Adjusted margins */
+
+input:checked + .toggle-slider .toggle-text-draft { opacity: 0; }
+input:not(:checked) + .toggle-slider .toggle-text-final { opacity: 0; }
+input:not(:checked) + .toggle-slider { background-color: #2a2a2a; border-color: #444; }
+input:not(:checked) + .toggle-slider:before { background-color: #ef4444; }
+
+/* Invisible Input for Delivery */
+.input-invisible {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--color-fg-primary);
+    font-size: 0.95rem; /* Match body font size */
+    font-weight: 500; /* Match label weight */
+    font-family: 'Inter', sans-serif; /* Explicitly set font */
+    resize: none;
+    outline: none;
+    padding: 0;
+    line-height: 1.5; /* Match line height of spans */
+    margin: 0;
+    overflow: hidden;
+}
+.input-invisible::placeholder {
+    font-style: normal; /* Remove italic */
+    color: var(--color-fg-secondary);
+    opacity: 0.5;
+}
+.delivery-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+}
+.delivery-input-wrapper:hover .input-invisible {
+    background: rgba(255,255,255,0.02);
+}
 
 @media (max-width: 768px) {
     .section-footer-grid { grid-template-columns: 1fr; gap: 1rem; }
     .f-words-header, .f-grand-total, .f-terms-header { margin-top: 1rem; }
     .row-split { grid-template-columns: 1fr; text-align: center !important; gap: 0.5rem; }
     .row-split .left, .row-split .right { text-align: center; }
+    .status-action-row { flex-direction: column; gap: 1rem; }
 }
 </style>

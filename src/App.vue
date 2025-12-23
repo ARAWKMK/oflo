@@ -36,7 +36,7 @@ const navItems = [
   { name: 'Companies', path: '/companies', icon: FileText },
   { name: 'Customers', path: '/customers', icon: FileText },
   { name: 'Products', path: '/products', icon: FileText }, 
-  { name: 'Invoices', path: '/invoices', icon: FileText },
+  { name: 'Sales', path: '/sales', icon: FileText },
   { name: 'Reports', path: '/reports', icon: BarChart3 },
   { name: 'Backup', path: '/backup', icon: DatabaseBackup },
   { name: 'Settings', path: '/settings', icon: SettingsIcon },

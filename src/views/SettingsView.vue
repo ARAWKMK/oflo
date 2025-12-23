@@ -22,7 +22,11 @@ const appSettings = ref({
     pdfMarginBottom: 15,
     // PDF Fonts
     pdfFontCompany: 'helvetica',
-    pdfFontBody: 'helvetica'
+    pdfFontBody: 'helvetica',
+    // PDF Config
+    pdfPageSizeInvoice: 'a4',
+    pdfPageSizeChallan: 'a4',
+    pdfQuality: 'standard' // 'standard' | 'high'
 });
 
 const fontList = ref<any[]>([]);
@@ -148,6 +152,38 @@ onMounted(loadSettings);
             <BaseInput label="Theme" v-model="appSettings.theme" disabled />
             <BaseInput label="Currency" v-model="appSettings.currency" />
             <BaseInput label="Language" v-model="appSettings.language" />
+            <BaseInput label="Language" v-model="appSettings.language" />
+        </div>
+
+        <h3 style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">PDF Configuration</h3>
+        <div class="form-grid">
+             <div class="input-group">
+                <label>Page Size (Invoice)</label>
+                <select v-model="appSettings.pdfPageSizeInvoice" class="base-select">
+                    <option value="a4">A4 (210mm x 297mm)</option>
+                    <option value="letter">Letter (8.5in x 11in)</option>
+                    <option value="legal">Legal (8.5in x 14in)</option>
+                    <option value="a5">A5 (148mm x 210mm)</option>
+                    <option value="a6">A6 (105mm x 148mm)</option>
+                </select>
+            </div>
+             <div class="input-group">
+                <label>Page Size (Challan)</label>
+                <select v-model="appSettings.pdfPageSizeChallan" class="base-select">
+                    <option value="a4">A4 (210mm x 297mm)</option>
+                    <option value="letter">Letter (8.5in x 11in)</option>
+                    <option value="legal">Legal (8.5in x 14in)</option>
+                    <option value="a5">A5 (148mm x 210mm)</option>
+                    <option value="a6">A6 (105mm x 148mm)</option>
+                </select>
+            </div>
+             <div class="input-group">
+                <label>Quality</label>
+                <select v-model="appSettings.pdfQuality" class="base-select">
+                    <option value="standard">Standard (Efficient)</option>
+                    <option value="high">High Quality (Precision)</option>
+                </select>
+            </div>
         </div>
 
         <!-- Typography Section -->

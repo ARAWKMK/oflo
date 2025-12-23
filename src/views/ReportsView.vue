@@ -5,9 +5,9 @@ import { ref } from 'vue';
 
 const reportType = ref('sales');
 const reportOptions = [
-    { value: 'sales', label: 'Sales Report' },
-    { value: 'tax', label: 'Tax Summary' },
-    { value: 'customer', label: 'Customer Performance' }
+    { id: 'sales', name: 'Sales Report', value: 'sales', label: 'Sales Report' },
+    { id: 'tax', name: 'Tax Summary', value: 'tax', label: 'Tax Summary' },
+    { id: 'custom', name: 'Custom Range', value: 'custom', label: 'Custom Range' }
 ];
 
 </script>
