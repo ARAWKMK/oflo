@@ -5,21 +5,29 @@ import ReportBuilder from '../components/reports/ReportBuilder.vue';
 import ReportChart from '../components/reports/ReportChart.vue';
 import ReportTable from '../components/reports/ReportTable.vue';
 import { generateAdvancedReport, type ReportRow, type ChartResult } from '../services/reportService';
-import { LayoutList, PieChart } from 'lucide-vue-next';
+import { LayoutList, PieChart, ShieldAlert } from 'lucide-vue-next';
 import StaticSalesSummary from '../components/reports/StaticSalesSummary.vue';
+import AccessLock from '../components/auth/AccessLock.vue';
 
 const isLoading = ref(false);
 const tableData = ref<ReportRow[]>([]);
 const chartData = ref<ChartResult | null>(null);
-const chartType = ref<string>('bar'); // Relaxed type
-const activeTab = ref<'dynamic' | 'static'>('dynamic');
+const chartType = ref<string>('bar');
+const activeTab = ref<'dynamic' | 'static' | 'admin'>('dynamic');
+
+// Auth State
+const isAuthenticated = ref(false);
+const userRole = ref<'viewer' | 'admin'>('viewer');
+
+const handleUnlock = (role: 'viewer' | 'admin') => {
+    isAuthenticated.value = true;
+    userRole.value = role;
+};
 
 const handleGenerate = async (options: any) => {
     isLoading.value = true;
     try {
-        // Use user-selected chart type
         chartType.value = options.chartType || 'bar';
-
         const result = await generateAdvancedReport(options);
         tableData.value = result.tableData;
         chartData.value = result.chartData;
@@ -32,7 +40,11 @@ const handleGenerate = async (options: any) => {
 </script>
 
 <template>
-<div class="page-container">
+    <div v-if="!isAuthenticated">
+        <AccessLock @unlock="handleUnlock" />
+    </div>
+
+    <div v-else class="page-container">
     <div class="header-row">
         <PageHeader title="Reports" :showBack="true" />
         <div class="view-toggles">
@@ -47,6 +59,13 @@ const handleGenerate = async (options: any) => {
                 @click="activeTab = 'static'"
             >
                 <LayoutList :size="16" class="icon" /> Static
+            </button>
+            <button 
+                v-if="userRole === 'admin'"
+                :class="['toggle-btn', { active: activeTab === 'admin' }]" 
+                @click="activeTab = 'admin'"
+            >
+                <ShieldAlert :size="16" class="icon" /> Admin
             </button>
         </div>
     </div>
@@ -84,7 +103,17 @@ const handleGenerate = async (options: any) => {
     <div v-show="activeTab === 'static'" class="static-tab">
         <StaticSalesSummary />
     </div>
-</div>
+    
+    <!-- Admin Report Tab -->
+    <div v-if="userRole === 'admin'" v-show="activeTab === 'admin'" class="static-tab">
+        <div class="text-center p-8">
+            <ShieldAlert class="w-16 h-16 text-primary mx-auto mb-4" />
+            <h2 class="text-xl font-bold mb-2">Admin Reports</h2>
+            <p class="text-gray-400">Restricted financial data and audit logs will appear here.</p>
+            <p class="text-sm mt-4 text-gray-500">(Feature coming in next update)</p>
+        </div>
+    </div>
+    </div>
 </template>
 
 <style scoped>

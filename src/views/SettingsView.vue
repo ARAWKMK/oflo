@@ -4,7 +4,107 @@ import BaseButton from '../components/ui/BaseButton.vue';
 import PageHeader from '../components/ui/PageHeader.vue';
 import { ref, onMounted } from 'vue';
 import { db } from '../db/db';
-import { Trash } from 'lucide-vue-next';
+import { Trash, Shield, Key } from 'lucide-vue-next';
+import { accessControlService } from '../services/accessControlService';
+
+const securitySection = ref({
+    hasAdmin: false,
+    hasViewer: false,
+    adminPass: '',
+    confirmAdminPass: '',
+    regularPass: '',
+    confirmRegularPass: '',
+    currentAdminPass: '', // New authentication field
+    isLoading: false,
+    msg: ''
+});
+
+const loadSecurityStatus = async () => {
+    securitySection.value.hasAdmin = await accessControlService.hasAdminPassword();
+    securitySection.value.hasViewer = await accessControlService.hasViewerPassword();
+};
+
+const handleSetAdmin = async () => {
+    const s = securitySection.value;
+    
+    // Auth Check: If Admin exists, must verify current password
+    if (s.hasAdmin) {
+        if (!s.currentAdminPass) {
+            alert('Please enter your Current Admin Password to make changes.');
+            return;
+        }
+        const isValid = await accessControlService.verifyAdmin(s.currentAdminPass);
+        if (!isValid) {
+            alert('❌ Incorrect Current Admin Password.');
+            return;
+        }
+    }
+
+    if (s.adminPass.length < 4) {
+        alert('Admin password is too short. It must be at least 4 characters.');
+        return;
+    }
+    if (s.adminPass !== s.confirmAdminPass) {
+        alert('Admin passwords do not match. Please re-enter.');
+        return;
+    }
+
+    s.isLoading = true;
+    try {
+        await accessControlService.setAdminPassword(s.adminPass);
+        alert('✅ SUCCESS: Admin Password has been updated successfully.');
+        s.msg = 'Admin password updated successfully';
+        s.adminPass = ''; s.confirmAdminPass = ''; s.currentAdminPass = '';
+        await loadSecurityStatus();
+    } catch (e) {
+        alert('❌ ERROR: Failed to set Admin Password. Please try again.');
+        console.error(e);
+        s.msg = 'Error setting admin password';
+    } finally {
+        s.isLoading = false;
+    }
+};
+
+const handleSetRegular = async () => {
+    const s = securitySection.value;
+
+    // Auth Check: If Admin exists, must verify current password
+    if (s.hasAdmin) {
+        if (!s.currentAdminPass) {
+            alert('Please enter the Admin Password to authorize this change.');
+            return;
+        }
+        const isValid = await accessControlService.verifyAdmin(s.currentAdminPass);
+        if (!isValid) {
+            alert('❌ Authorization Failed: Incorrect Admin Password.');
+            return;
+        }
+    }
+
+    if (s.regularPass.length < 4) {
+        alert('Regular password is too short. It must be at least 4 characters.');
+        return;
+    }
+    if (s.regularPass !== s.confirmRegularPass) {
+        alert('Regular passwords do not match. Please re-enter.');
+        return;
+    }
+    
+    s.isLoading = true;
+    try {
+        await accessControlService.setViewerPassword(s.regularPass);
+        alert('✅ SUCCESS: Regular Viewer Password has been updated successfully.');
+        s.msg = 'Regular Viewer password updated';
+        s.regularPass = ''; s.confirmRegularPass = ''; s.currentAdminPass = '';
+        await loadSecurityStatus(); 
+    } catch (e) {
+        alert('❌ ERROR: Failed to set Regular Password. Please try again.');
+        console.error(e);
+        s.msg = 'Error setting regular password';
+    } finally {
+        s.isLoading = false;
+    }
+};
 
 const appSettings = ref({
     theme: 'Dark Premium',
@@ -131,6 +231,7 @@ const handleSeedData = async () => {
 onMounted(async () => {
     await loadSettings();
     await loadSeedingStatus();
+    await loadSecurityStatus();
 });
 </script>
 
@@ -168,8 +269,102 @@ onMounted(async () => {
             </div>
         </div>
 
-        <!-- Typography Section -->
-        <h3 style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">PDF Typography</h3>
+            <!-- Security Section -->
+            <h3 style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">Security & Access Control</h3>
+            <p style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 1rem;">Protect your reports with tiered password access.</p>
+            
+            <div class="form-grid" style="grid-template-columns: 1fr;">
+                
+                <!-- Admin Setup -->
+                <div class="card p-4 bg-surface rounded-lg border border-border">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-2">
+                            <Shield class="w-5 h-5 text-primary" />
+                            <h4 class="font-bold">Admin Access</h4>
+                        </div>
+                        <div class="text-xs px-2 py-1 rounded-full font-bold flex items-center gap-1"
+                             :class="securitySection.hasAdmin ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
+                            <span v-if="securitySection.hasAdmin">● Active</span>
+                            <span v-else>○ Not Set</span>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Auth Field -->
+                        <div v-if="securitySection.hasAdmin" class="input-group md:col-span-2">
+                            <label class="text-primary font-bold mb-2">Current Admin Password (Required)</label>
+                            <input type="password" v-model="securitySection.currentAdminPass" class="base-input border-primary" placeholder="Required to authorize changes" />
+                        </div>
+
+                        <div class="input-group">
+                            <label>{{ securitySection.hasAdmin ? 'Change Admin Password' : 'Set Admin Password' }}</label>
+                            <input type="password" v-model="securitySection.adminPass" class="base-input" placeholder="New Admin Password" />
+                        </div>
+                        <div class="input-group">
+                            <label>Confirm Password</label>
+                            <input type="password" v-model="securitySection.confirmAdminPass" class="base-input" placeholder="Confirm Password" />
+                        </div>
+                    </div>
+
+                    <div class="mt-4 flex justify-end">
+                        <BaseButton variant="primary" :loading="securitySection.isLoading" @click="handleSetAdmin">
+                            {{ securitySection.hasAdmin ? 'Update Admin Password' : 'Set Admin Password' }}
+                        </BaseButton>
+                    </div>
+                </div>
+
+                <!-- Regular Viewer Setup -->
+                <div class="card p-4 bg-surface rounded-lg border border-border mt-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-2">
+                            <Key class="w-5 h-5 text-secondary" />
+                            <h4 class="font-bold">Regular Viewer Access</h4>
+                        </div>
+                        <div class="text-xs px-2 py-1 rounded-full font-bold flex items-center gap-1"
+                             :class="securitySection.hasViewer ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
+                            <span v-if="securitySection.hasViewer">● Active</span>
+                            <span v-else>○ Not Set</span>
+                        </div>
+                    </div>
+                    
+                    <div v-if="!securitySection.hasAdmin" class="p-4 bg-gray-100 rounded text-center text-sm text-gray-500">
+                        <Shield class="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                        Please set an <strong>Admin Password</strong> first to enable Viewer Access configuration.
+                    </div>
+                    
+                    <div v-else>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <!-- Auth Field for Regular Changes -->
+                            <div class="input-group md:col-span-2">
+                                <label class="text-primary font-bold">Current Admin Password (Required)</label>
+                                <input type="password" v-model="securitySection.currentAdminPass" class="base-input border-primary" placeholder="Authorize this change" />
+                            </div>
+
+                            <div class="input-group">
+                                <label>Set Regular Password</label>
+                                <input type="password" v-model="securitySection.regularPass" class="base-input" placeholder="New Regular Password" />
+                            </div>
+                            <div class="input-group">
+                                <label>Confirm Password</label>
+                                <input type="password" v-model="securitySection.confirmRegularPass" class="base-input" placeholder="Confirm Password" />
+                            </div>
+                        </div>
+
+                        <div class="mt-4 flex justify-end">
+                            <BaseButton variant="secondary" :loading="securitySection.isLoading" @click="handleSetRegular">
+                                Update Viewer Password
+                            </BaseButton>
+                        </div>
+                    </div>
+                </div>
+                
+                <div v-if="securitySection.msg" class="mt-4 p-3 rounded bg-bg-subtle text-green-400 text-center font-bold">
+                    {{ securitySection.msg }}
+                </div>
+            </div>
+
+            <!-- Typography Section -->
+            <h3 style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">PDF Typography</h3>
         <p style="font-size: 0.8rem; opacity: 0.7; margin-bottom: 1rem;">Configure fonts and sizes for the invoice PDF.</p>
         
         <div class="form-grid">
