@@ -1,39 +1,64 @@
 <script setup lang="ts">
-import { Upload, Download, Check } from 'lucide-vue-next';
+import { Upload, Download, Check, FileJson } from 'lucide-vue-next';
 import BaseButton from '../components/ui/BaseButton.vue';
 import PageHeader from '../components/ui/PageHeader.vue';
 import { db } from '../db/db';
-import { ref, toRaw } from 'vue';
+import { ref, toRaw, computed } from 'vue';
 
 const showRestoreModal = ref(false);
-const restoreData = ref<any>(null);
+const restoreData = ref<any>(null); // Holds { meta, data }
+const restoreSource = ref<'v1' | 'v2'>('v2');
+
+// Selection State
 const selection = ref({
     companies: true,
     customers: true,
     products: true,
     settings: true,
-    invoices: true,
+    invoices: true, // Includes Versions
     fonts: true
 });
 
+// Helper to get counts safely
+const getCount = (key: string) => {
+    if (!restoreData.value?.data) return 0;
+    const list = restoreData.value.data[key];
+    return Array.isArray(list) ? list.length : (list ? 1 : 0);
+};
+
+// Current App Version for Metadata
+const APP_VERSION = '1.0.0';
+const SCHEMA_VERSION = 5;
+
 const backup = async () => {
     try {
-        const data = {
-            timestamp: new Date().toISOString(),
+        const fullData = {
             companies: await db.companies.toArray(),
             customers: await db.customers.toArray(),
             products: await db.products.toArray(),
             settings: await db.settings.toArray(),
-            invoices: await db.invoices.toArray(), // Added
-            invoiceVersions: await db.invoiceVersions.toArray(), // Added
-            fonts: await db.fonts.toArray() // Added
+            invoices: await db.invoices.toArray(),
+            invoiceVersions: await db.invoiceVersions.toArray(),
+            fonts: await db.fonts.toArray()
         };
 
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const exportPayload = {
+            meta: {
+                appName: 'Oflo',
+                appVersion: APP_VERSION,
+                schemaVersion: SCHEMA_VERSION,
+                timestamp: new Date().toISOString(),
+                exportedBy: 'User'
+            },
+            data: fullData
+        };
+
+        const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `oflo_backup_${new Date().toISOString().slice(0,10)}.json`;
+        const dateStr = new Date().toISOString().slice(0,10);
+        a.download = `oflo_backup_full_${dateStr}.json`;
         a.click();
         URL.revokeObjectURL(url);
     } catch (e: any) {
@@ -52,19 +77,34 @@ const triggerRestore = () => {
         const reader = new FileReader();
         reader.onload = (evt: any) => {
             try {
-                restoreData.value = JSON.parse(evt.target.result);
-                // Reset selection based on available keys
-                selection.value.companies = !!restoreData.value.companies;
-                selection.value.customers = !!restoreData.value.customers;
-                selection.value.products = !!restoreData.value.products;
-                selection.value.settings = !!restoreData.value.settings;
-                selection.value.fonts = !!restoreData.value.fonts; // Added
-                // Treat invoices and versions as a single "Invoices" unit
-                (selection.value as any).invoices = !!(restoreData.value.invoices && restoreData.value.invoiceVersions);
+                const json = JSON.parse(evt.target.result);
+                
+                // Detect Format
+                if (json.meta && json.data) {
+                    // V2 Format
+                    restoreSource.value = 'v2';
+                    restoreData.value = json;
+                } else {
+                    // V1 Format (Flat) - Wrap it
+                    restoreSource.value = 'v1';
+                    restoreData.value = {
+                        meta: { version: '1.0', timestamp: new Date().toISOString(), legacy: true },
+                        data: json
+                    };
+                }
+
+                // Reset selection based on availability
+                const d = restoreData.value.data;
+                selection.value.companies = !!(d.companies?.length);
+                selection.value.customers = !!(d.customers?.length);
+                selection.value.products = !!(d.products?.length);
+                selection.value.settings = !!(d.settings?.length);
+                selection.value.fonts = !!(d.fonts?.length);
+                selection.value.invoices = !!(d.invoices?.length || d.invoiceVersions?.length);
                 
                 showRestoreModal.value = true;
             } catch (err) {
-                alert('Invalid Backup File');
+                alert('Invalid Backup File: Could not parse JSON.');
             }
         };
         reader.readAsText(file);
@@ -73,50 +113,73 @@ const triggerRestore = () => {
 };
 
 const confirmRestore = async () => {
-    if (!restoreData.value) return;
+    if (!restoreData.value?.data) return;
 
     try {
-        const rawData = toRaw(restoreData.value);
+        const rawData = toRaw(restoreData.value.data);
 
-        // Add invoices tables to transaction
-        await db.transaction('rw', [db.companies, db.customers, db.products, db.settings, db.invoices, db.invoiceVersions, db.fonts], async () => {
-            if (selection.value.companies && rawData.companies) {
+        // Transactional Restore
+        await db.transaction('rw', [
+            db.companies, db.customers, db.products, 
+            db.settings, db.invoices, db.invoiceVersions, db.fonts
+        ], async () => {
+            
+            // 1. Profiles
+            if (selection.value.companies && rawData.companies?.length) {
                 await db.companies.bulkPut(rawData.companies);
             }
-            if (selection.value.customers && rawData.customers) {
+            if (selection.value.customers && rawData.customers?.length) {
                 await db.customers.bulkPut(rawData.customers);
             }
-            if (selection.value.products && rawData.products) {
+            if (selection.value.products && rawData.products?.length) {
                 await db.products.bulkPut(rawData.products);
             }
-            if (selection.value.settings && rawData.settings) {
+
+            // 2. Settings & Assets
+            if (selection.value.settings && rawData.settings?.length) {
                 await db.settings.bulkPut(rawData.settings);
             }
-            if (selection.value.fonts && rawData.fonts) { // Added
+            if (selection.value.fonts && rawData.fonts?.length) {
                  await db.fonts.bulkPut(rawData.fonts);
             }
-            // Restore Invoices
-            if ((selection.value as any).invoices && rawData.invoices) {
-                const fixDates = (list: any[]) => list.map(item => ({
+
+            // 3. Transactions (Invoices + Versions)
+            if (selection.value.invoices && rawData.invoices?.length) {
+                // Fix Date Objects for Invoices
+                const fixInvoiceDates = (list: any[]) => list.map(item => ({
                     ...item,
-                    date: item.date ? new Date(item.date) : null,
-                    status: item.status || 'final', // Default to final for backward compatibility
-                    createdAt: item.createdAt ? new Date(item.createdAt) : undefined
+                    date: new Date(item.date),
+                    status: item.status || 'final' // Backfill status
                 }));
 
-                await db.invoices.bulkPut(fixDates(rawData.invoices));
-                if (rawData.invoiceVersions) {
-                    await db.invoiceVersions.bulkPut(fixDates(rawData.invoiceVersions));
+                // Fix Date Objects for Versions
+                const fixVersionDates = (list: any[]) => list.map(item => ({
+                    ...item,
+                    date: new Date(item.date),
+                    createdAt: item.createdAt ? new Date(item.createdAt) : new Date(item.date),
+                    status: item.status || 'final'
+                }));
+
+                await db.invoices.bulkPut(fixInvoiceDates(rawData.invoices));
+                
+                if (rawData.invoiceVersions?.length) {
+                    await db.invoiceVersions.bulkPut(fixVersionDates(rawData.invoiceVersions));
                 }
             }
         });
-        alert('Restore Completed Successfully');
+
+        alert('Restore Completed Successfully!');
         showRestoreModal.value = false;
         restoreData.value = null;
+        // Optional: Reload to reflect changes
+        window.location.reload();
     } catch (e: any) {
+        console.error(e);
         alert('Restore Failed: ' + e.message);
     }
 };
+
+const restoreMeta = computed(() => restoreData.value?.meta || {});
 </script>
 
 <template>
@@ -124,53 +187,103 @@ const confirmRestore = async () => {
     <PageHeader title="Backup & Restore" :showBack="true" />
 
     <div class="grid">
-        <div class="card action-card">
-            <h3><Download class="icon-sm"/> Backup Data</h3>
-            <p>Export all your Companies, Customers, Products, and Settings to a secure JSON file.</p>
-            <BaseButton @click="backup">Download Backup</BaseButton>
+        <div class="card action-card backup-card">
+             <div class="icon-circle bg-primary-dim text-primary"><Download :size="24"/></div>
+            <div class="content">
+                <h3>Full Backup</h3>
+                <p>Export a complete copy of your database, including all profiles, inventory, invoices, settings, and custom fonts.</p>
+                <BaseButton @click="backup" class="w-full">Download Backup JSON</BaseButton>
+            </div>
         </div>
 
-        <div class="card action-card">
-            <h3><Upload class="icon-sm"/> Restore Data</h3>
-            <p>Restore your data from a previously created backup file. This will merge/update existing records.</p>
-            <BaseButton variant="secondary" @click="triggerRestore">Select File to Restore</BaseButton>
+        <div class="card action-card restore-card">
+            <div class="icon-circle bg-sec-dim text-sec"><Upload :size="24"/></div>
+            <div class="content">
+                <h3>Restore Data</h3>
+                <p>Import data from a backup file. Existing records with matching IDs will be updated; new records will be added.</p>
+                <BaseButton variant="secondary" @click="triggerRestore" class="w-full">Select File...</BaseButton>
+            </div>
         </div>
     </div>
 
     <!-- Restore Modal -->
     <div v-if="showRestoreModal" class="modal-overlay">
         <div class="modal card">
-            <h3>Select Data to Restore</h3>
+            <div class="modal-header">
+                <h3><FileJson :size="20"/> Restore Selection</h3>
+                <div class="meta-badge" v-if="restoreSource === 'v2'">
+                    v{{ restoreMeta.schemaVersion || '?' }} • {{ new Date(restoreMeta.timestamp).toLocaleDateString() }}
+                </div>
+                <div class="meta-badge warning" v-else>Legacy Backup Format</div>
+            </div>
+
+            <p class="modal-desc">Select the categories you want to verify and merge into your current database.</p>
+
             <div class="selection-list">
-                <label class="checkbox-row" v-if="restoreData.companies">
-                    <input type="checkbox" v-model="selection.companies">
-                    <span>Companies ({{ restoreData.companies.length }} items)</span>
+                <!-- Profiles -->
+                <label class="checkbox-row" :class="{ disabled: !getCount('companies') }">
+                    <input type="checkbox" v-model="selection.companies" :disabled="!getCount('companies')">
+                    <div class="row-info">
+                        <span class="row-title">Companies (Seller Profiles)</span>
+                        <span class="row-count">{{ getCount('companies') }} items</span>
+                    </div>
                 </label>
-                <label class="checkbox-row" v-if="restoreData.customers">
-                    <input type="checkbox" v-model="selection.customers">
-                    <span>Customers ({{ restoreData.customers.length }} items)</span>
+
+                <label class="checkbox-row" :class="{ disabled: !getCount('customers') }">
+                    <input type="checkbox" v-model="selection.customers" :disabled="!getCount('customers')">
+                    <div class="row-info">
+                        <span class="row-title">Customers</span>
+                        <span class="row-count">{{ getCount('customers') }} items</span>
+                    </div>
                 </label>
-                <label class="checkbox-row" v-if="restoreData.products">
-                    <input type="checkbox" v-model="selection.products">
-                    <span>Products ({{ restoreData.products.length }} items)</span>
+                
+                <label class="checkbox-row" :class="{ disabled: !getCount('products') }">
+                    <input type="checkbox" v-model="selection.products" :disabled="!getCount('products')">
+                    <div class="row-info">
+                        <span class="row-title">Products (Inventory)</span>
+                        <span class="row-count">{{ getCount('products') }} items</span>
+                    </div>
                 </label>
-                <label class="checkbox-row" v-if="restoreData.settings">
-                    <input type="checkbox" v-model="selection.settings">
-                    <span>Settings</span>
+
+                <div class="separator"></div>
+
+                <!-- Transactions -->
+                <label class="checkbox-row" :class="{ disabled: !getCount('invoices') }">
+                    <input type="checkbox" v-model="selection.invoices" :disabled="!getCount('invoices')">
+                    <div class="row-info">
+                        <span class="row-title">Invoices & History</span>
+                        <span class="row-count">
+                            {{ getCount('invoices') }} invoices, 
+                            {{ getCount('invoiceVersions') }} versions
+                        </span>
+                    </div>
                 </label>
-                <label class="checkbox-row" v-if="restoreData.fonts">
-                    <input type="checkbox" v-model="selection.fonts">
-                    <span>Custom Fonts ({{ restoreData.fonts.length }} items)</span>
+
+                <div class="separator"></div>
+
+                <!-- Config -->
+                <label class="checkbox-row" :class="{ disabled: !getCount('settings') }">
+                    <input type="checkbox" v-model="selection.settings" :disabled="!getCount('settings')">
+                    <div class="row-info">
+                        <span class="row-title">App Settings</span>
+                        <span class="row-count">{{ getCount('settings') || 0 }} items</span>
+                    </div>
                 </label>
-                <!-- Added Invoices Checkbox -->
-                <label class="checkbox-row" v-if="(restoreData.invoices && restoreData.invoices.length) || (restoreData.invoiceVersions && restoreData.invoiceVersions.length)">
-                    <input type="checkbox" v-model="selection.invoices">
-                    <span>Invoices ({{ (restoreData.invoices?.length || 0) }} items)</span>
+                
+                <label class="checkbox-row" :class="{ disabled: !getCount('fonts') }">
+                    <input type="checkbox" v-model="selection.fonts" :disabled="!getCount('fonts')">
+                    <div class="row-info">
+                        <span class="row-title">Custom Fonts</span>
+                        <span class="row-count">{{ getCount('fonts') }} items</span>
+                    </div>
                 </label>
             </div>
+
             <div class="modal-actions">
                 <BaseButton variant="ghost" @click="showRestoreModal = false">Cancel</BaseButton>
-                <BaseButton @click="confirmRestore"><Check :size="16"/> Confirm Restore</BaseButton>
+                <BaseButton @click="confirmRestore" class="btn-primary shadow-glow">
+                    <Check :size="16"/> Confirm Merge
+                </BaseButton>
             </div>
         </div>
     </div>
@@ -178,22 +291,163 @@ const confirmRestore = async () => {
 </template>
 
 <style scoped>
-.page-container { padding: 0 1rem; }
-.header { margin-bottom: 2rem; }
-.header h2 { display: flex; align-items: center; gap: 0.5rem; font-size: 1.5rem; }
-.icon { color: var(--color-fg-primary); }
-.icon-sm { width: 20px; height: 20px; margin-right: 0.5rem; vertical-align: middle; }
+/* Premium Stylings */
+.page-container { padding: 0 1rem; max-width: 900px; margin: 0 auto; color: var(--color-fg-primary); }
 
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
-.action-card { display: flex; flex-direction: column; gap: 1rem; align-items: flex-start; }
-.action-card p { color: var(--color-fg-secondary); font-size: 0.9rem; line-height: 1.4; flex: 1; }
+.grid { 
+    display: grid; 
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); 
+    gap: 2rem; 
+    margin-top: 1.5rem;
+}
+
+.action-card { 
+    padding: 2.5rem; 
+    display: flex; 
+    flex-direction: row; 
+    gap: 1.5rem; 
+    align-items: flex-start; 
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-card);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.action-card:hover { 
+    transform: translateY(-4px); 
+    box-shadow: 0 15px 40px -10px rgba(0,0,0,0.5); 
+    border-color: var(--color-primary-dim); 
+}
+
+/* Subtle Glow on Hover */
+.backup-card:hover .icon-circle { 
+    background: var(--color-primary); 
+    color: var(--color-bg-app); 
+    box-shadow: 0 0 20px rgba(var(--color-primary-rgb), 0.4); 
+}
+.restore-card:hover .icon-circle { 
+    background: var(--color-fg-primary); 
+    color: var(--color-bg-app); 
+    box-shadow: 0 0 20px rgba(255,255,255, 0.4); 
+}
+
+.icon-circle {
+    width: 64px; height: 64px; 
+    border-radius: 16px; 
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+    font-size: 1.5rem;
+}
+
+.bg-primary-dim { background: rgba(var(--color-primary-rgb), 0.1); }
+.bg-sec-dim { background: var(--color-bg-muted); }
+
+.text-primary { color: var(--color-primary); }
+.text-sec { color: var(--color-fg-secondary); }
+
+.content { flex: 1; display: flex; flex-direction: column; gap: 1rem; }
+.content h3 { font-size: 1.35rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.content p { font-size: 0.95rem; color: var(--color-fg-secondary); line-height: 1.6; margin-bottom: 0.5rem; opacity: 0.8; }
 
 /* Modal */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 50; backdrop-filter: blur(2px); }
-.modal { width: 100%; max-width: 400px; }
-.modal h3 { margin-bottom: 1rem; }
-.selection-list { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
-.checkbox-row { display: flex; align-items: center; gap: 0.75rem; cursor: pointer; padding: 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); }
-.checkbox-row:hover { background: var(--color-bg-muted); }
-.modal-actions { display: flex; justify-content: flex-end; gap: 1rem; }
+.modal-overlay { 
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85); 
+    display: flex; align-items: center; justify-content: center; 
+    z-index: 100; backdrop-filter: blur(8px); 
+    padding: 1rem;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.modal { 
+    width: 100%; max-width: 500px; 
+    padding: 0; overflow: hidden;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 25px 60px rgba(0,0,0,0.6);
+    animation: scaleUp 0.2s ease-out;
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scaleUp { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.modal-header { padding: 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg-elevated); }
+.modal-header h3 { display: flex; align-items: center; gap: 0.75rem; margin: 0; font-size: 1.15rem; font-weight: 700; }
+
+.meta-badge { 
+    margin-top: 0.5rem; 
+    display: inline-block; 
+    font-size: 0.75rem; 
+    font-weight: 600;
+    padding: 3px 10px; 
+    border-radius: 99px; 
+    background: var(--color-bg-muted); 
+    color: var(--color-fg-secondary); 
+    border: 1px solid var(--color-border);
+    font-family: var(--font-mono);
+}
+.meta-badge.warning { background: rgba(255, 165, 0, 0.1); color: orange; border-color: rgba(255, 165, 0, 0.2); }
+
+.modal-desc { padding: 1.5rem 1.5rem 0.5rem; font-size: 0.95rem; color: var(--color-fg-secondary); line-height: 1.5; }
+
+/* Selection List */
+.selection-list { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; max-height: 55vh; overflow-y: auto; }
+
+.checkbox-row { 
+    display: flex; align-items: center; gap: 1rem; 
+    padding: 1rem; 
+    border-radius: 10px; 
+    border: 1px solid var(--color-border); 
+    background: var(--color-bg-app); /* Deeper contrast */
+    cursor: pointer; 
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Premium Hover & Checked States using :has relational selector */
+.checkbox-row:hover:not(.disabled) { 
+    border-color: var(--color-border-hover); 
+    background: var(--color-bg-elevated);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.checkbox-row:has(input:checked) {
+    background: rgba(var(--color-primary-rgb), 0.08); /* More subtle */
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px rgba(var(--color-primary-rgb), 0.15) inset;
+}
+
+.checkbox-row input[type="checkbox"] {
+    width: 1.25rem; height: 1.25rem;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.checkbox-row.disabled { 
+    opacity: 0.4; 
+    cursor: not-allowed; 
+    background: rgba(0,0,0,0.1);
+    border-style: dashed; 
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.row-info { display: flex; flex-direction: column; gap: 0.2rem; }
+.row-title { font-weight: 600; font-size: 1rem; color: var(--color-fg-primary); letter-spacing: -0.01em; }
+.row-count { font-size: 0.8rem; color: var(--color-fg-tertiary); font-family: var(--font-mono); opacity: 0.8; }
+
+.separator { height: 1px; background: var(--color-border); margin: 0.5rem 0; opacity: 0.3; }
+
+.modal-actions { 
+    padding: 1.5rem; 
+    background: var(--color-bg-elevated); 
+    border-top: 1px solid var(--color-border); 
+    display: flex; justify-content: flex-end; gap: 1rem; 
+}
 </style>

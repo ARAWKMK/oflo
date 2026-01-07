@@ -2,7 +2,7 @@
 import { computed, reactive, watch, onMounted, ref } from 'vue';
 import { db, type InvoiceItem } from '../db/db';
 import { useRouter, useRoute } from 'vue-router';
-import { Trash2, Plus, Save } from 'lucide-vue-next';
+import { Trash2, Plus, Save, ChevronDown } from 'lucide-vue-next';
 import BaseButton from '../components/ui/BaseButton.vue';
 import PageHeader from '../components/ui/PageHeader.vue';
 import { useLiveQuery } from '../composables/useLiveQuery';
@@ -20,33 +20,25 @@ const companies = useLiveQuery(() => db.companies.toArray());
 
 // Form State
 const state = reactive({
-    id: undefined as number | undefined, // Invoice ID if editing
-// ... (lines 21-88 omitted, assume matched by context if I keep context small? No, replace_file_content is better)
-// I will just replace the top import and the watcher block separately if possible, or all together.
-// Let's replace the top imports first.
+    id: undefined as number | undefined,
     companyId: '' as string | number,
     customerId: '' as string | number,
     invoiceNumber: '',
     referenceNumber: '',
     date: new Date().toISOString().split('T')[0],
     vehicleNumber: '',
-    deliveryAddress: '', // v3
-    summaryItem: { // v3
-        description: '',
-        hsn: '',
-        numberOfBags: 0,
-        quantity: 0,
-        unitPrice: 0,
-        taxRate: 18,
-        taxAmount: 0,
-        totalAmount: 0
+    deliveryAddress: '', 
+    summaryItem: {
+        description: '', hsn: '', numberOfBags: 0, quantity: 0,
+        unitPrice: 0, taxRate: 18, taxAmount: 0, totalAmount: 0
     },
     items: [] as any[],
-    status: 'final' // v4 Default
+    status: 'final' 
 });
 
-const isLoading = ref(true); // Lock for initial load
+const isLoading = ref(true);
 
+// Computed Helpers
 const isEditMode = computed(() => !!state.id);
 const customerOptions = computed(() => customers.value?.map(c => ({ id: c.id!, name: c.name })) || []);
 const companyOptions = computed(() => companies.value?.map(c => ({ id: c.id!, name: c.name })) || []);
@@ -55,14 +47,51 @@ const productOptions = computed(() => products.value?.map(p => ({ id: p.id!, nam
 const selectedCompany = computed(() => companies.value?.find(c => c.id === state.companyId));
 const selectedCustomer = computed(() => customers.value?.find(c => c.id === state.customerId));
 
-// Load Data if Edit Mode
+// v3: Delivery Address Logic
+const availableDeliveryAddresses = computed(() => {
+    if (!selectedCustomer.value) return [];
+    if (!selectedCustomer.value.enableDelivery) return [];
+    return selectedCustomer.value.deliveryAddresses || [];
+});
+
+const showDeliveryDropdown = computed(() => {
+    return selectedCustomer.value?.enableDelivery && availableDeliveryAddresses.value.length > 0;
+});
+
+// Watcher: Auto-select Delivery Address
+watch(() => state.customerId, (newId) => {
+    if (newId) {
+        const c = customers.value?.find(x => x.id === newId);
+        if (c) {
+            if (c.enableDelivery && c.deliveryAddresses?.length) {
+                state.deliveryAddress = c.deliveryAddresses[0];
+            } else {
+                state.deliveryAddress = ''; // Reset if disabled
+            }
+        }
+    }
+});
+
+// Smart Invoice Number
+watch(() => state.companyId, async (newId) => {
+    if (isEditMode.value) return; 
+    if (newId) {
+        const id = Number(newId);
+        if (!isNaN(id)) {
+            state.invoiceNumber = await store.generateNextInvoiceNumber(id);
+            state.referenceNumber = `${state.invoiceNumber}-v1`;
+        }
+    } else {
+        state.invoiceNumber = '';
+        state.referenceNumber = '';
+    }
+});
+
+// Load Data
 onMounted(async () => {
     let invId: number | undefined = undefined;
-    
     if (route.params.invoiceNo) {
-        // Edit Mode with Invoice No
-        const invNo = route.params.invoiceNo as string;
-        const inv = await db.invoices.where('invoiceNumber').equals(invNo).first();
+        const inv = await db.invoices.where('invoiceNumber').equals(route.params.invoiceNo as string).first();
         if (inv) invId = inv.id;
     } else if (route.params.id) {
         invId = Number(route.params.id);
@@ -85,7 +114,7 @@ onMounted(async () => {
                 state.date = ver.date.toISOString().split('T')[0];
                 state.vehicleNumber = ver.vehicleNumber || '';
                 state.referenceNumber = ver.referenceNumber;
-                state.deliveryAddress = ver.buyerDetails.deliveryAddress || ''; // v3
+                state.deliveryAddress = ver.buyerDetails.deliveryAddress || '';
                 
                 state.items = ver.items.map(i => ({
                     productId: i.productId,
@@ -98,77 +127,28 @@ onMounted(async () => {
                     taxRate: i.taxRate,
                     taxAmount: i.taxAmount,
                     totalAmount: (i.quantity * i.unitPrice).toFixed(2),
-                    producerId: i.producerId, // v3
-                    producerName: i.producerName // v3
+                    producerId: i.producerId,
+                    producerName: i.producerName
                 }));
 
-                // Load Summary if exists, else compute
                 if (ver.summaryItem) {
                     state.summaryItem = { ...ver.summaryItem };
                 } else {
-                    computeSummary();
+                    performSummaryCalculation();
                 }
-
-                // Load Status (default final if missing)
                 state.status = (ver as any).status || 'final';
             }
         }
     }
-
-    // Release Lock after DOM updates
-    setTimeout(() => {
-        isLoading.value = false;
-    }, 100);
-});
-
-
-// Smart Invoice Number Generation
-// Smart Invoice Number Generation
-watch(() => state.companyId, async (newId) => {
-    if (isEditMode.value) return; 
-
-    if (newId) {
-        if (typeof newId === 'number') {
-             state.invoiceNumber = await store.generateNextInvoiceNumber(newId);
-             state.referenceNumber = `${state.invoiceNumber}-v1`;
-        } else {
-             const id = Number(newId);
-             if (!isNaN(id)) {
-                 state.invoiceNumber = await store.generateNextInvoiceNumber(id);
-                 state.referenceNumber = `${state.invoiceNumber}-v1`;
-             }
-        }
-    } else {
-        state.invoiceNumber = '';
-        state.referenceNumber = '';
-    }
-});
-
-// Auto-fill Delivery Address
-watch(() => state.customerId, (newId) => {
-    if (newId) {
-        const c = customers.value?.find(x => x.id === newId);
-        if (c) {
-             // Fallback to address if deliveryAddress not present (User requirement: "same as Client Address")
-             state.deliveryAddress = c.deliveryAddress || c.address; 
-        }
-    }
+    setTimeout(() => isLoading.value = false, 100);
 });
 
 // Actions
 const addItem = () => {
     state.items.push({
-        productId: 0,
-        description: '',
-        name: '',
-        hsn: '',
-        numberOfBags: 0,
-        quantity: 0,
-        unitPrice: 0,
-        taxRate: 18,
-        taxAmount: 0,
-        totalAmount: 0,
-        producerId: '' // v3
+        productId: 0, description: '', name: '', hsn: '',
+        numberOfBags: 0, quantity: 0, unitPrice: 0, taxRate: 18,
+        taxAmount: 0, totalAmount: 0, producerId: ''
     });
 };
 
@@ -191,82 +171,75 @@ const onProductSelect = (row: any, prodId: any) => {
 
 const calculateRow = (row: any) => {
     const bags = Number(row.numberOfBags) || 0;
-    if (bags > 0) {
-        row.quantity = bags * 25;
-    }
+    if (bags > 0) row.quantity = bags * 25;
 
     const qty = Number(row.quantity) || 0;
     const price = Number(row.unitPrice) || 0;
     const base = qty * price;
-    const taxRate = Number(row.taxRate) || 0;
-    row.taxAmount = Number((base * (taxRate / 100)).toFixed(2));
+    row.taxAmount = Number((base * (Number(row.taxRate)/100 || 0)).toFixed(2));
     row.totalAmount = base; 
 };
 
-const computeSummary = () => {
-    // Logic: Take 1st row attrs, Sum Qty/Bags
+const performSummaryCalculation = () => {
     if (!state.items.length) return;
-    if (isLoading.value) return; // Prevent overwriting during load
     
-    const first = state.items[0];
+    // Calculate Totals from Items
     const sumBags = state.items.reduce((s, i) => s + (Number(i.numberOfBags)||0), 0);
     const sumQty = state.items.reduce((s, i) => s + (Number(i.quantity)||0), 0);
-    // User Update: Taxable in Summary should be Qty * Price
-    const price = Number(first.unitPrice) || 0;
-    const rate = Number(first.taxRate) || 0;
-    
-    // Recalculate based on Summary Qty (Source of Truth for Tax Invoice)
-    const base = sumQty * price;
-    const tax = base * (rate / 100);
+    const first = state.items[0];
 
-    state.summaryItem = {
-        description: first.description,
-        hsn: first.hsn,
-        unitPrice: price,
-        taxRate: rate,
-        numberOfBags: sumBags,
-        quantity: sumQty,
-        taxAmount: Number(tax.toFixed(2)),
-        totalAmount: Number(base.toFixed(2)) // "Taxable" as per user request (was Total)
-    };
+    // Check if Summary needs initialization (Fresh start or empty)
+    // We treat "Description" as the key. If it's empty, we assume it's uninitialized.
+    // Also if unitPrice is 0, we can assume it's uninitialized or needs sync.
+    const isUninitialized = !state.summaryItem.description;
+
+    if (isUninitialized) {
+        // Full Sync (Copy everything)
+        state.summaryItem = {
+            description: first.description,
+            hsn: first.hsn,
+            unitPrice: Number(first.unitPrice) || 0,
+            taxRate: Number(first.taxRate) || 0,
+            numberOfBags: sumBags,
+            quantity: sumQty,
+            taxAmount: 0, // Will be calc by recalculateSummary
+            totalAmount: 0 // Will be calc by recalculateSummary
+        };
+    } else {
+        // Partial Sync (Preserve Manual Price/Desc, Update Qty only)
+        state.summaryItem.numberOfBags = sumBags;
+        state.summaryItem.quantity = sumQty;
+    }
+
+    // Always recalculate totals (Price * Qty)
+    recalculateSummary();
+};
+
+const computeSummary = () => {
+    if (isLoading.value) return;
+    performSummaryCalculation();
 };
 
 const recalculateSummary = () => {
-   // Triggered on Manual Edit of Summary Items
    const s = state.summaryItem;
-   const qty = Number(s.quantity) || 0;
-   const price = Number(s.unitPrice) || 0;
-   const rate = Number(s.taxRate) || 0;
-   
-   const base = qty * price;
-   const tax = base * (rate / 100);
-   
-   s.taxAmount = Number(tax.toFixed(2));
+   const base = (Number(s.quantity)||0) * (Number(s.unitPrice)||0);
+   s.taxAmount = Number((base * ((Number(s.taxRate)||0) / 100)).toFixed(2));
    s.totalAmount = Number(base.toFixed(2));
 };
 
 watch(() => state.items, computeSummary, { deep: true });
 
 const finance = computed(() => {
-    const seller = companies.value?.find(c => c.id === state.companyId);
-    const buyer = customers.value?.find(c => c.id === state.customerId);
-    
-    // User Update: Financials linked to Summary Table
     const s = state.summaryItem;
-    const subTotal = Number(s.totalAmount) || 0; // Taxable Value
-    
-    // Re-verify Tax from SubTotal (Consistency)
-    const tax = subTotal * (Number(s.taxRate)/100 || 0.18);
-    const totalTax = Number(tax.toFixed(2));
+    const subTotal = Number(s.totalAmount) || 0;
+    const totalTax = Number((subTotal * (Number(s.taxRate)/100 || 0.18)).toFixed(2));
 
     let taxType = 'IGST';
-    let sgst = 0;
-    let cgst = 0;
-    let igst = 0;
+    let sgst = 0, cgst = 0, igst = 0;
 
-    if (seller && buyer) {
-        const sellerState = seller.gstin.substring(0, 2);
-        const buyerState = buyer.gstin.substring(0, 2);
+    if (selectedCompany.value && selectedCustomer.value) {
+        const sellerState = selectedCompany.value.gstin.substring(0, 2);
+        const buyerState = selectedCustomer.value.gstin.substring(0, 2);
         
         if (sellerState === buyerState) {
             taxType = 'CGST_SGST';
@@ -284,34 +257,21 @@ const finance = computed(() => {
     const grandTotal = Math.ceil(grandTotalRaw);
     const roundOff = grandTotal - grandTotalRaw;
 
-    return {
-        subTotal,
-        totalTax,
-        grandTotal,
-        roundOff,
-        taxType, 
-        cgst,
-        sgst,
-        igst
-    };
+    return { subTotal, totalTax, grandTotal, roundOff, taxType, cgst, sgst, igst };
 });
 
 const save = async () => {
-    // console.log("Save: Initiated", state);
     if (!state.companyId) return alert('Select a Company');
     if (!state.customerId) return alert('Select a Customer');
     if (!state.items.length) return alert('Add at least one item');
 
     try {
-        // console.log("Save: Preparing Data");
-        const seller = JSON.parse(JSON.stringify(companies.value?.find(c => c.id === state.companyId)));
-        const buyer = JSON.parse(JSON.stringify(customers.value?.find(c => c.id === state.customerId)));
+        const seller = JSON.parse(JSON.stringify(selectedCompany.value));
+        const buyer = JSON.parse(JSON.stringify(selectedCustomer.value));
         
-        // Update Snapshot with current Delivery Address
+        // Save snapshot of delivery address used
         buyer.deliveryAddress = state.deliveryAddress;
         
-        if (!seller || !buyer) throw new Error("Invalid Selection");
-
         const finalItems: InvoiceItem[] = state.items.map(i => ({
             productId: i.productId,
             name: i.name || i.description,
@@ -327,20 +287,14 @@ const save = async () => {
             producerName: i.producerId ? (companies.value?.find(c => c.id === Number(i.producerId))?.name) : undefined
         }));
 
-        // console.log("Save: Starting Transaction");
         await db.transaction('rw', db.invoices, db.invoiceVersions, async () => {
             let invId = state.id;
             let newRef = state.referenceNumber;
 
             if (isEditMode.value && invId) {
-                // console.log("Save: Edit Mode - Creating new version for Invoice", invId);
-                // Versioning logic
-                // Ensure we count ALL versions (robust check)
                 const allVers = await db.invoiceVersions.where('invoiceId').equals(invId).toArray();
                 const maxVer = allVers.length > 0 ? Math.max(...allVers.map(v => v.version)) : 0;
                 const nextVer = maxVer + 1;
-                
-                // console.log("Save: Next Version", nextVer);
                 newRef = `${state.invoiceNumber}-v${nextVer}`;
 
                 const newVerId = await db.invoiceVersions.add({
@@ -357,22 +311,19 @@ const save = async () => {
                     roundOff: finance.value.roundOff,
                     referenceNumber: newRef,
                     taxType: finance.value.taxType as any,
-                    summaryItem: JSON.parse(JSON.stringify(state.summaryItem)), // v3 Fix Clone
-                    status: state.status as any, // v4
+                    summaryItem: JSON.parse(JSON.stringify(state.summaryItem)),
+                    status: state.status as any,
                     createdAt: new Date()
                 });
-                // console.log("Save: Added Version", newVerId);
 
                 await db.invoices.update(invId, { 
                     currentVersionId: Number(newVerId),
                     grandTotal: finance.value.grandTotal,
                     date: new Date(state.date),
-                    status: state.status as any // v4
+                    status: state.status as any
                 });
-                // console.log("Save: Updated Invoice Pointer");
 
             } else {
-                // console.log("Save: New Invoice Mode");
                 invId = await db.invoices.add({
                     invoiceNumber: state.invoiceNumber,
                     customerId: state.customerId as number,
@@ -380,7 +331,6 @@ const save = async () => {
                     grandTotal: finance.value.grandTotal,
                     vehicleNumber: state.vehicleNumber
                 } as any);
-                // console.log("Save: Added Invoice", invId);
 
                 const v1Id = await db.invoiceVersions.add({
                     invoiceId: Number(invId),
@@ -396,26 +346,20 @@ const save = async () => {
                     roundOff: finance.value.roundOff,
                     referenceNumber: state.referenceNumber, 
                     taxType: finance.value.taxType as any,
-                    summaryItem: JSON.parse(JSON.stringify(state.summaryItem)), // v3 Fix Clone
-                    status: state.status as any, // v4
+                    summaryItem: JSON.parse(JSON.stringify(state.summaryItem)),
+                    status: state.status as any,
                     createdAt: new Date()
                 });
-                // console.log("Save: Added V1", v1Id);
                 
                 await db.invoices.update(invId, { currentVersionId: Number(v1Id), status: state.status as any });
             }
         });
 
-        // console.log("Save: Complete");
         alert('Sale Saved Successfully');
-        if (state.id) {
-             router.push(`/sales/${state.invoiceNumber}`);
-        } else {
-             router.push(`/sales`);
-        }
+        if (state.id) router.push(`/sales/${state.invoiceNumber}`);
+        else router.push(`/sales`);
        
     } catch (e: any) {
-        // console.error("Save: Failed", e);
         alert('Error: ' + e.message);
     }
 };
@@ -431,70 +375,107 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
         
         <!-- SECTION 1: HEADER & COMPANY -->
         <header class="section-company">
-            <!-- Line 0: Reference No (Center) - User change -->
             <div class="row-ref-center">
-                <span class="label">Reference No:</span>
+                <span class="label">Ref:</span>
                 <span class="value">{{ state.referenceNumber || '---' }}</span>
             </div>
 
-            <!-- Line 1: Company Select (Center) -->
+            <!-- Company Select -->
             <div class="row-company-select">
-                <select v-model="state.companyId" class="input-compact select-company" :disabled="isEditMode">
+                <select v-model="state.companyId" class="input-glass select-company" :disabled="isEditMode">
                     <option value="" disabled>Select Company</option>
                     <option v-for="c in companyOptions" :value="c.id">{{ c.name }}</option>
                 </select>
-                <div v-if="isEditMode" style="font-size: 0.75rem; color: var(--color-fg-secondary); margin-top: 0.2rem;">(Cannot change Company on Edit)</div>
+                <div v-if="isEditMode" class="text-xs text-sec mt-1">(Company locked in Edit Mode)</div>
             </div>
 
             <template v-if="selectedCompany">
-                <!-- Line 2: Tagline (Center) -->
+                <!-- Tagline -->
                 <div class="row-tagline" v-if="selectedCompany.tagline">
                     {{ selectedCompany.tagline }}
                 </div>
-                <!-- Line 3: Address (Left with Label) - User change -->
+                <!-- Address -->
                 <div class="row-address-left">
                     <span class="label">ADDRESS:</span>
                     <span class="value">{{ selectedCompany.address }}</span>
                 </div>
 
                 <!-- Metrics Grid -->
-                <div class="row-split">
-                    <div class="left"><span class="label">GSTIN:</span> <span class="value">{{ selectedCompany.gstin }}</span></div>
-                    <div class="right"><span class="label">Invoice No:</span> <span class="value">{{ state.invoiceNumber || '---' }}</span></div>
-                </div>
-                <div class="row-split">
-                    <div class="left"><span class="label">Email:</span> <span class="value">{{ selectedCompany.email || '---' }}</span></div>
-                    <div class="right"><span class="label">Date:</span> <input type="date" v-model="state.date" class="input-inline" /></div>
-                </div>
-                <div class="row-split">
-                    <div class="left"><span class="label">Mobile:</span> <span class="value">{{ selectedCompany.phone || '---' }}</span></div>
-                    <div class="right"><span class="label">Vehicle No:</span> <input v-model="state.vehicleNumber" @input="state.vehicleNumber = state.vehicleNumber.toUpperCase()" placeholder="Enter vehicle no." class="input-inline" /></div>
+                <!-- Metrics Split Layout -->
+                <div class="header-split">
+                    <!-- Left Column: Company Info -->
+                    <div class="col-left sub-grid">
+                        <span class="label">GSTIN:</span> 
+                        <span class="value-mono">{{ selectedCompany.gstin }}</span>
+                        
+                        <span class="label">Email:</span> 
+                        <span class="value">{{ selectedCompany.email || '---' }}</span>
+
+                        <span class="label">Mobile:</span> 
+                        <span class="value">{{ selectedCompany.phone || '---' }}</span>
+                    </div>
+
+                    <!-- Right Column: Invoice Info -->
+                    <div class="col-right sub-grid">
+                        <span class="label text-right">Invoice No:</span> 
+                        <span class="value-mono highlight">{{ state.invoiceNumber || '---' }}</span>
+
+                        <span class="label text-right">Date:</span> 
+                        <div class="input-wrapper-fix">
+                            <input type="date" v-model="state.date" class="input-glass-sm" />
+                        </div>
+
+                        <span class="label text-right">Vehicle No:</span> 
+                        <div class="input-wrapper-fix">
+                            <input v-model="state.vehicleNumber" @input="state.vehicleNumber = state.vehicleNumber.toUpperCase()" placeholder="MH12..." class="input-glass-sm" />
+                        </div>
+                    </div>
                 </div>
             </template>
         </header>
 
-        <hr class="separator" />
+        <div class="separator"></div>
 
-        <!-- SECTION 2: CUSTOMER (Left Aligned) - User change -->
+        <!-- SECTION 2: CUSTOMER -->
         <section class="section-customer">
-            <div class="row-customer-select-left">
-                <select v-model="state.customerId" class="input-compact select-customer-left">
-                    <option value="" disabled>Select Customer</option>
-                    <option v-for="c in customerOptions" :value="c.id">{{ c.name }}</option>
-                </select>
-            </div>
+            <select v-model="state.customerId" class="input-glass select-customer">
+                <option value="" disabled>Select Customer</option>
+                <option v-for="c in customerOptions" :value="c.id">{{ c.name }}</option>
+            </select>
+            
             <template v-if="selectedCustomer">
-                <div class="row-address-left">
-                    <span class="label">Customer Address:</span>
-                    <span class="value">{{ selectedCustomer.address }}</span>
-                </div>
-                <!-- GST Left -->
-                <div class="row-gst-left"><span class="label">Customer GST:</span> <span class="value">{{ selectedCustomer.gstin }}</span></div>
-                <!-- Delivery Address -->
-                <!-- Delivery Address -->
-                <div class="row-address-left" style="white-space: pre-wrap; margin-top: 0.5rem;">
-                    <span class="label">Delivery Address:</span>
-                    <span class="value">{{ state.deliveryAddress }}</span>
+                <div class="customer-details">
+                    <div class="row-address-left">
+                        <span class="label">Billing Address:</span>
+                        <span class="value">{{ selectedCustomer.address }}</span>
+                    </div>
+                    <div class="field-group">
+                        <span class="label">GSTIN:</span> 
+                        <span class="value-mono">{{ selectedCustomer.gstin }}</span>
+                    </div>
+                    
+                    <!-- Delivery Address Logic -->
+                    <div class="delivery-address-block">
+                        <div class="flex-between">
+                            <span class="label">Delivery Address:</span>
+                            <span v-if="showDeliveryDropdown" class="text-xs text-accent">Mode: Specific Location</span>
+                            <span v-else class="text-xs text-sec">Mode: Default</span>
+                        </div>
+                        
+                        <!-- If Enabled -> Dropdown -->
+                        <div v-if="showDeliveryDropdown" class="mt-1">
+                            <div class="select-wrapper">
+                                <select v-model="state.deliveryAddress" class="input-glass w-full">
+                                    <option v-for="addr in availableDeliveryAddresses" :value="addr">{{ addr }}</option>
+                                </select>
+                                <ChevronDown :size="14" class="select-icon"/>
+                            </div>
+                        </div>
+                        <!-- Else -> Static Display -->
+                        <div v-else class="mt-1 value text-sm opacity-80">
+                            {{ state.deliveryAddress || selectedCustomer.address }}
+                        </div>
+                    </div>
                 </div>
             </template>
         </section>
@@ -502,157 +483,142 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
         <!-- SECTION 3: ITEMS TABLE -->
         <section class="section-items">
             <div class="table-container">
-                <table class="compact-table">
+                <table class="premium-table">
                     <thead>
                         <tr>
-                            <th style="width: 15%">Producer</th>
-                            <th style="width: 20%">Product</th>
-                            <th style="width: 15%">Description</th>
-                            <th style="width: 8%">HSN</th>
-                            <th style="width: 6%">Bags</th>
-                            <th style="width: 8%">Qty</th>
-                            <th style="width: 10%">Price</th>
-                            <th style="width: 6%">Tax %</th>
-                            <th style="width: 10%">Taxable</th>
+                            <th style="width: 14%">Producer</th>
+                            <th style="width: 18%">Product</th>
+                            <th style="width: 19%">Description</th>
+                            <th style="width: 8%; text-align: center;">HSN</th>
+                            <th style="width: 8%; text-align: right;">Bags</th>
+                            <th style="width: 10%; text-align: right;">Qty</th>
+                            <th style="width: 9%; text-align: right;">Price</th>
+                            <th style="width: 6%; text-align: right;">Tax %</th>
+                            <th style="width: 10%; text-align: right;">Taxable</th>
                             <th style="width: 2%"></th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr v-for="(item, idx) in state.items" :key="idx">
                             <td>
-                                <select v-model="item.producerId" class="input-compact select-table">
-                                    <option value="" disabled>Select</option>
+                                <select v-model="item.producerId" class="input-table">
+                                    <option value="" disabled>Producer</option>
                                     <option v-for="c in companyOptions" :value="c.id">{{ c.name }}</option>
                                 </select>
                             </td>
                             <td>
-                                <select v-model="item.productId" @change="onProductSelect(item, item.productId)" class="input-compact select-table">
-                                    <option :value="0" disabled>Select</option>
+                                <select v-model="item.productId" @change="onProductSelect(item, item.productId)" class="input-table">
+                                    <option :value="0" disabled>Select Product</option>
                                     <option v-for="p in productOptions" :value="p.id">{{ p.name }}</option>
                                 </select>
                             </td>
-                            <td><input v-model="item.description" class="input-compact" /></td>
-                            <td><input v-model="item.hsn" class="input-compact" /></td>
-                            <td><input type="number" v-model="item.numberOfBags" @input="calculateRow(item)" class="input-compact text-right" /></td>
-                            <td><input type="number" v-model="item.quantity" @input="calculateRow(item)" class="input-compact text-right" /></td>
-                            <td><input type="number" v-model="item.unitPrice" @input="calculateRow(item)" class="input-compact text-right" /></td>
-                            <td><input type="number" v-model="item.taxRate" @input="calculateRow(item)" class="input-compact text-right" /></td>
-                            <td class="text-right val-cell">{{ ((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2) }}</td>
+                            <td><input v-model="item.description" class="input-table" placeholder="Desc" /></td>
+                            <td><input v-model="item.hsn" class="input-table" placeholder="HSN" /></td>
+                            <td><input type="number" v-model="item.numberOfBags" @input="calculateRow(item)" class="input-table text-right" /></td>
+                            <td><input type="number" v-model="item.quantity" @input="calculateRow(item)" class="input-table text-right" /></td>
+                            <td><input type="number" v-model="item.unitPrice" @input="calculateRow(item)" class="input-table text-right" /></td>
+                            <td><input type="number" v-model="item.taxRate" @input="calculateRow(item)" class="input-table text-right" /></td>
+                            <td class="text-right font-mono">{{ ((item.quantity || 0) * (item.unitPrice || 0)).toFixed(2) }}</td>
                             <td class="text-center"><button @click="removeItem(idx)" class="btn-icon-danger"><Trash2 :size="14"/></button></td>
                         </tr>
-                        <tr v-if="state.items.length === 0"><td colspan="9" class="empty-row">No items added</td></tr>
+                        <tr v-if="state.items.length === 0"><td colspan="10" class="empty-state">Add items to start sale</td></tr>
                     </tbody>
                 </table>
             </div>
             <div class="table-actions">
-                 <BaseButton variant="secondary" @click="addItem" class="btn-add-sm"><Plus :size="14"/> Add Item</BaseButton>
+                 <BaseButton variant="ghost" @click="addItem" class="btn-sm text-accent"><Plus :size="14"/> Add Line</BaseButton>
             </div>
         </section>
 
-        <section class="section-summary-item" style="margin-top: 1rem;">
-             <div class="f-words-header">INVOICE SUMMARY (Auto-Calculated)</div>
+        <!-- SUMMARY SECTION -->
+        <section class="section-summary-item" style="margin-top: 2rem;">
+             <div class="section-header">INVOICE SUMMARY (Auto-Calculated)</div>
              <div class="table-container">
-                <table class="compact-table">
+                <table class="premium-table">
                     <thead>
                         <tr>
                             <th style="width: 30%">Description</th>
-                            <th style="width: 10%">HSN</th>
-                            <th style="width: 10%">Bags</th>
-                            <th style="width: 10%">Qty</th>
-                            <th style="width: 10%">Price</th>
-                            <th style="width: 10%">Tax %</th>
-                            <th style="width: 15%">Taxable</th>
+                            <th style="width: 10%; text-align: center;">HSN</th>
+                            <th style="width: 10%; text-align: right;">Bags</th>
+                            <th style="width: 10%; text-align: right;">Qty</th>
+                            <th style="width: 10%; text-align: right;">Price</th>
+                            <th style="width: 10%; text-align: right;">Tax %</th>
+                            <th style="width: 15%; text-align: right;">Taxable</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td><input v-model="state.summaryItem.description" class="input-compact" /></td>
-                            <td><input v-model="state.summaryItem.hsn" class="input-compact" /></td>
-                            <td><input type="number" v-model="state.summaryItem.numberOfBags" class="input-compact text-right" /></td>
-                            <td><input type="number" v-model="state.summaryItem.quantity" @input="recalculateSummary" class="input-compact text-right" /></td>
-                            <td><input type="number" v-model="state.summaryItem.unitPrice" @input="recalculateSummary" class="input-compact text-right" /></td>
-                            <td><input type="number" v-model="state.summaryItem.taxRate" @input="recalculateSummary" class="input-compact text-right" /></td>
-                            <td class="text-right val-cell">{{ state.summaryItem.totalAmount }}</td>
+                            <td><input v-model="state.summaryItem.description" class="input-table" /></td>
+                            <td><input v-model="state.summaryItem.hsn" class="input-table" /></td>
+                            <td><input type="number" v-model="state.summaryItem.numberOfBags" class="input-table text-right" /></td>
+                            <td><input type="number" v-model="state.summaryItem.quantity" @input="recalculateSummary" class="input-table text-right" /></td>
+                            <td><input type="number" v-model="state.summaryItem.unitPrice" @input="recalculateSummary" class="input-table text-right" /></td>
+                            <td><input type="number" v-model="state.summaryItem.taxRate" @input="recalculateSummary" class="input-table text-right" /></td>
+                            <td class="text-right font-mono">{{ state.summaryItem.totalAmount }}</td>
                         </tr>
                     </tbody>
                 </table>
              </div>
         </section>
 
-        <hr class="separator" />
+        <div class="separator-dashed"></div>
 
-        <!-- SECTION 4: FOOTER (Single Grid) -->
-        <section class="section-footer-grid">
-            
-            <!-- Row 1: Headers -->
-            <div class="f-cell f-bank-header">BANK DETAILS</div>
-            <div class="f-cell f-spacer"></div>
-
-            <!-- Row 2: Content (Bank & Subtotals take up space naturally) -->
-            <div class="f-cell f-bank-content">
-                <template v-if="selectedCompany && selectedCompany.bankName">
-                    <div class="info-row"><span class="label">Bank Name:</span> <span class="value">{{ selectedCompany.bankName }}</span></div>
-                    <div class="info-row"><span class="label">Acc. No.:</span> <span class="value">{{ selectedCompany.accountNumber }}</span></div>
-                    <div class="info-row" v-if="selectedCompany.ifscCode"><span class="label">IFSC Code:</span> <span class="value">{{ selectedCompany.ifscCode }}</span></div>
-                </template>
-                <div v-else class="placeholder-text">-- No Bank Details --</div>
-            </div>
-
-            <div class="f-cell f-subtotals">
-                <div class="f-finance-row"><span class="label">Subtotal</span> <span class="val">₹{{ finance.subTotal.toFixed(2) }}</span></div>
-                <template v-if="finance.taxType === 'CGST_SGST'">
-                    <div class="f-finance-row"><span class="label">CGST</span> <span class="val">₹{{ finance.cgst.toFixed(2) }}</span></div>
-                    <div class="f-finance-row"><span class="label">SGST</span> <span class="val">₹{{ finance.sgst.toFixed(2) }}</span></div>
-                </template>
-                <template v-else>
-                    <div class="f-finance-row"><span class="label">IGST</span> <span class="val">₹{{ finance.igst.toFixed(2) }}</span></div>
-                </template>
-                <!-- Round Off Removed per user request -->
-            </div>
-
-            <!-- Row 3: Words vs Grand Total (Aligned Sections) -->
-            <div class="f-cell f-words-section">
-                 <div class="f-words-header">In Words</div>
-                 <div class="words-text">{{ amountInWords }}</div>
-            </div>
-            
-            <div class="f-cell f-grand-total">
-                <div class="grand-total-box">
-                    <div class="gt-label">GRAND TOTAL</div>
-                    <div class="gt-value">₹{{ finance.grandTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 }) }}</div>
+        <!-- FOOTER GRID -->
+        <section class="footer-grid">
+            <!-- Bank Details -->
+            <div class="col-bank">
+                <div class="section-header">BANK DETAILS</div>
+                <div class="bank-box card-inset">
+                    <template v-if="selectedCompany && selectedCompany.bankName">
+                        <div class="info-row"><span class="label">Bank:</span> <span class="val">{{ selectedCompany.bankName }}</span></div>
+                        <div class="info-row"><span class="label">A/C:</span> <span class="val">{{ selectedCompany.accountNumber }}</span></div>
+                        <div class="info-row" v-if="selectedCompany.ifscCode"><span class="label">IFSC:</span> <span class="val">{{ selectedCompany.ifscCode }}</span></div>
+                    </template>
+                    <div v-else class="text-sm opacity-50 italic">No bank details configured.</div>
                 </div>
             </div>
 
-            <!-- Row 4: Terms (Left Only) -->
-            <div class="f-cell f-terms-header">TERMS</div>
-            <div class="f-cell f-empty"></div>
-
-            <div class="f-cell f-terms-content">
-                 <div class="terms-text" v-if="selectedCompany && selectedCompany.terms">{{ selectedCompany.terms }}</div>
-                 <div class="placeholder-text" v-else>--</div>
+            <!-- Totals -->
+            <div class="col-totals">
+                <div class="total-row"><span class="label">Subtotal</span> <span class="val">₹{{ finance.subTotal.toFixed(2) }}</span></div>
+                <template v-if="finance.taxType === 'CGST_SGST'">
+                    <div class="total-row"><span class="label">CGST</span> <span class="val">₹{{ finance.cgst.toFixed(2) }}</span></div>
+                    <div class="total-row"><span class="label">SGST</span> <span class="val">₹{{ finance.sgst.toFixed(2) }}</span></div>
+                </template>
+                <template v-else>
+                    <div class="total-row"><span class="label">IGST</span> <span class="val">₹{{ finance.igst.toFixed(2) }}</span></div>
+                </template>
+                
+                <div class="grand-total-box mt-4">
+                    <div class="gt-label">GRAND TOTAL</div>
+                    <div class="gt-value">₹{{ finance.grandTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 }) }}</div>
+                </div>
+                <div class="words-text mt-2">{{ amountInWords }}</div>
             </div>
-            <div class="f-cell f-empty"></div>
-
+            
+            <!-- Terms -->
+            <div class="col-terms mt-4">
+                <div class="section-header">TERMS</div>
+                <div class="text-sm opacity-80 whitespace-pre-wrap">{{ selectedCompany?.terms || '--' }}</div>
+            </div>
         </section>
 
-
-
-        <!-- Status Toggle & Save -->
-         <section class="status-action-row">
-            <div class="status-toggle-wrapper">
-                <span class="status-label">Status:</span>
+        <!-- Actions -->
+         <section class="action-bar">
+            <div class="flex items-center gap-4">
+                <span class="text-sm font-medium text-sec">Status:</span>
                 <div class="toggle-switch">
                     <input type="checkbox" id="statusToggle" v-model="state.status" true-value="final" false-value="draft">
-                    <label for="statusToggle" class="toggle-slider">
-                        <span class="toggle-text-draft">DRAFT</span>
-                        <span class="toggle-text-final">FINAL</span>
+                    <label for="statusToggle" class="toggle-label">
+                        <span class="toggle-text px-3 py-1 text-xs font-bold rounded" :class="state.status === 'draft' ? 'bg-red-500/20 text-red-500' : 'opacity-40'">DRAFT</span>
+                        <span class="toggle-text px-3 py-1 text-xs font-bold rounded" :class="state.status === 'final' ? 'bg-green-500/20 text-green-500' : 'opacity-40'">FINAL</span>
                     </label>
                 </div>
             </div>
 
-            <button @click="save" class="btn btn-primary btn-save">
-                <Save :size="16"/> Save Sale
-            </button>
+            <BaseButton @click="save" class="btn-primary shadow-glow">
+                <Save :size="18"/> Save Sale
+            </BaseButton>
          </section>
 
     </div>
@@ -660,135 +626,185 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
 </template>
 
 <style scoped>
-.page-container { padding: 0 1rem; max-width: 1000px; margin: 0 auto; padding-bottom: 4rem; color: var(--color-fg-primary); }
+.page-container { padding: 0 1rem 4rem; max-width: 1100px; margin: 0 auto; color: var(--color-fg-primary); }
 
-/* Paper Layout */
 .invoice-paper {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
-    border-radius: 4px;
-    padding: 2rem;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
+    border-radius: var(--radius-lg);
+    padding: 2.5rem;
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+    display: flex; flex-direction: column; gap: 2rem;
 }
 
-/* Common Styles */
-.label { font-weight: 600; font-size: 0.9rem; color: var(--color-fg-secondary); margin-right: 0.5rem; }
-.value { font-weight: 500; font-size: 1rem; color: var(--color-fg-primary); }
-.separator { border: none; border-bottom: 2px solid var(--color-border); margin: 0.5rem 0; }
-.select-company { font-size: 1.2rem; font-weight: 700; text-align: center; border: 1px solid transparent; background: transparent; color: var(--color-primary); width: 100%; max-width: 400px; margin: 0 auto; display: block; }
-.select-customer-left { font-size: 1.2rem; font-weight: 700; text-align: left; border: 1px solid transparent; background: transparent; color: var(--color-primary); width: 100%; display: block; margin: 0; }
-.select-company:hover, .select-customer-left:hover { border-color: var(--color-border); background: var(--color-bg-app); }
-.input-inline { border: none; border-bottom: 1px dashed var(--color-border); background: transparent; padding: 0 0.5rem; width: 150px; text-align: left; color: var(--color-fg-primary); font-family: inherit; font-size: 0.95rem; }
-.input-inline:focus { border-bottom-style: solid; border-color: var(--color-primary); outline: none; }
+/* Typography & Layout */
+.label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-fg-tertiary); }
+.value { font-size: 0.95rem; font-weight: 500; color: var(--color-fg-primary); }
+.value-mono { font-family: var(--font-mono); font-size: 0.9rem; letter-spacing: -0.02em; }
+.text-sec { color: var(--color-fg-secondary); }
+.text-accent { color: var(--color-primary); }
+.separator { height: 1px; background: var(--color-border); width: 100%; opacity: 0.5; }
+.separator-dashed { height: 1px; border-bottom: 1px dashed var(--color-border); width: 100%; opacity: 0.5; margin: 1rem 0; }
 
-/* Header & Customer Sections */
-.section-company, .section-customer { display: flex; flex-direction: column; gap: 0.5rem; }
-.row-ref-center { text-align: center; display: flex; justify-content: center; align-items: center; font-size: 0.9rem; margin-bottom: -1rem; }
-.row-company-select { text-align: center; margin-bottom: 0.5rem; }
-.row-customer-select-left { text-align: left; margin-bottom: 0.5rem; }
-.row-tagline { text-align: center; font-style: italic; color: var(--color-fg-secondary); font-size: 0.9rem; margin-bottom: 0.2rem; min-height: 1.2rem; }
-.row-address-left { text-align: left; white-space: pre-wrap; margin: 0; font-size: 0.95rem; line-height: 1.4; margin-bottom: 0.5rem; display: flex; gap: 0.5rem; }
-.row-split { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 0.2rem; }
-.row-split .left { text-align: left; }
-.row-split .right { text-align: right; }
-.row-gst-left { text-align: left; margin-top: 0.5rem; }
+/* Company Header */
+.section-company { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; }
+.row-ref-center { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; opacity: 0.7; }
+.select-company { font-size: 1.5rem; font-weight: 700; color: var(--color-primary); text-align: center; width: auto; min-width: 300px; border-bottom: 2px solid transparent !important; }
+.select-company:hover { border-bottom-color: var(--color-border) !important; }
+.select-company:focus { border-bottom-color: var(--color-primary) !important; }
+.row-tagline { font-style: italic; color: var(--color-fg-secondary); font-size: 0.9rem; }
+.row-address-left { display: flex; gap: 0.5rem; text-align: left; }
 
-/* Items Section */
-.section-items { margin-top: 1rem; }
-.table-container { border: 1px solid var(--color-border); border-radius: 4px; overflow-x: auto; }
-.compact-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-.compact-table th { background: var(--color-bg-muted); padding: 0.5rem; text-align: left; font-weight: 600; border-bottom: 1px solid var(--color-border); }
-.compact-table td { padding: 0.4rem; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
-.compact-table input { width: 100%; background: transparent; border: none; padding: 0.2rem; }
-.text-right { text-align: right; }
-.text-center { text-align: center; }
-.btn-icon-danger { color: #ef4444; background: none; border: none; cursor: pointer; }
-.table-actions { margin-top: 0.5rem; }
-
-/* STRICT FOOTER GRID */
-.section-footer-grid {
-    display: grid;
+/* Header Split Layout */
+.header-split { 
+    display: grid; 
     grid-template-columns: 1fr 1fr; 
-    gap: 1rem 3rem; 
+    gap: 4rem; 
+    margin-top: 2rem; 
     align-items: start;
 }
 
-.f-cell { display: flex; flex-direction: column; }
-.f-bank-header, .f-words-header, .f-terms-header { font-weight: 700; text-transform: uppercase; font-size: 0.8rem; color: var(--color-fg-secondary); letter-spacing: 0.5px; opacity: 0.8; margin-bottom: 0.2rem; }
-.f-words-header { margin-bottom: 0.5rem; } /* Gap between header and text */
-.f-terms-header { margin-top: 1.5rem; }
-
-.f-bank-content { gap: 0.3rem; }
-.info-row { display: flex; gap: 0.5rem; font-size: 0.9rem; }
-
-.f-subtotals { gap: 0.5rem; justify-content: flex-start; }
-.f-finance-row { display: flex; justify-content: space-between; font-size: 0.95rem; }
-.f-finance-row .label { color: var(--color-fg-secondary); }
-.f-finance-row .val { font-weight: 600; font-family: monospace; }
-
-.f-words-section { 
-    display: flex; 
-    flex-direction: column; 
-    margin-top: 1.5rem; /* Gap from bank details */
+.sub-grid { 
+    display: grid; 
+    grid-template-columns: max-content 1fr; 
+    column-gap: 2rem; 
+    row-gap: 0.75rem; 
+    align-items: center; 
 }
-.words-text { font-style: italic; font-weight: 500; font-size: 1rem; color: var(--color-primary); line-height: 1.4; }
 
-.f-grand-total { 
-    display: flex; 
-    justify-content: flex-start; 
-    margin-top: 1.5rem; /* Match words section top */
+/* Specific alignments for Right Column */
+.col-right.sub-grid {
+    grid-template-columns: 1fr min-content; 
+    justify-content: end;
+    grid-template-columns: max-content 140px; /* Reduced width from 180px */
+    justify-content: end;
 }
-.grand-total-box {
-    background: var(--color-bg-app); 
-    border: 2px solid var(--color-border); 
-    padding: 1rem; 
-    border-radius: 4px; 
-    text-align: center; 
+
+.col-left.sub-grid {
+    grid-template-columns: max-content 1fr;
+    justify-content: start;
+}
+
+.header-split .label { font-size: 0.75rem; font-weight: 700; color: var(--color-fg-tertiary); letter-spacing: 0.05em; text-transform: uppercase; white-space: nowrap; }
+.header-split .value, .header-split .value-mono { font-size: 0.95rem; color: var(--color-fg-primary); }
+.header-split .value-mono { font-family: var(--font-mono); font-size: 0.9rem; }
+
+/* Right Align Text in Right Col */
+.col-right .label { text-align: right; }
+.col-right .value, .col-right .value-mono { text-align: right; display: block; }
+
+.input-wrapper-fix {
     width: 100%;
-}
-.gt-label { font-size: 0.8rem; color: var(--color-fg-secondary); font-weight: 600; text-transform: uppercase; margin-bottom: 0.2rem; }
-.gt-value { font-size: 1.8rem; font-weight: 700; color: var(--color-primary); line-height: 1; }
-
-.f-terms-content {}
-.terms-text { white-space: pre-wrap; font-size: 0.85rem; color: var(--color-fg-primary); opacity: 0.9; }
-
-.placeholder-text { font-style: italic; color: var(--color-fg-secondary); opacity: 0.5; font-size: 0.9rem; }
-
-/* Status Toggle Styles */
-.status-action-row {
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    gap: 2rem;
-    margin-top: 2rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--color-border);
-}
-
-.status-toggle-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
-
-.status-label {
-    font-weight: 600;
-    color: var(--color-fg-secondary);
-}
-
-.toggle-switch {
     position: relative;
-    width: 160px; /* Increased width for better visibility */
-    height: 36px;
 }
 
-.toggle-switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
+/* Inputs */
+.input-glass { background: transparent; border: none; color: inherit; padding: 0.25rem; transition: all 0.2s; font-family: inherit; }
+.input-glass:hover { background: rgba(255,255,255,0.03); border-radius: 4px; }
+.input-glass:focus { outline: none; background: rgba(255,255,255,0.05); }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .invoice-paper { padding: 1rem; }
+    .header-split { 
+        grid-template-columns: 1fr; 
+        gap: 1.5rem; /* Reduced gap between blocks */
+    } 
+    /* Stack and Align both sub-grids identically */
+    .sub-grid, .col-left.sub-grid, .col-right.sub-grid {
+        grid-template-columns: 100px 1fr !important; /* Fixed Key Width for perfect alignment */
+        column-gap: 0.5rem;
+        justify-content: start;
+    }
+    .col-right .label, .col-right .value, .col-right .value-mono { text-align: left; } 
+    .input-wrapper-fix { justify-content: flex-start; width: 100%; }
+    .input-glass-sm { text-align: left; min-width: 0; width: 100%; } /* Fill space */
+    
+    .grid-2 { grid-template-columns: 1fr; gap: 0.5rem; }
+    .footer-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+    .col-terms { grid-column: span 1; }
+    .table-container { overflow-x: auto; }
+}
+
+/* Header Small Inputs (Date, Vehicle, etc) */
+.input-glass-sm { 
+    background: transparent; 
+    border: none; 
+    border-bottom: 1px dashed transparent; /* Hidden by default */
+    color: var(--color-fg-primary); /* Match text color */
+    text-align: right; 
+    min-width: 140px; 
+    font-size: 0.9rem; 
+    font-family: var(--font-mono); /* Use mono for alignment */
+    padding: 0;
+    transition: all 0.2s;
+}
+.input-glass-sm:hover, .input-glass-sm:focus {
+    border-bottom-color: var(--color-border);
+    background: rgba(255,255,255,0.02);
+}
+.input-glass-sm:focus { outline: none; border-bottom-color: var(--color-primary); }
+
+.input-glass-sm::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    opacity: 0.3; /* Make icon very subtle */
+    cursor: pointer;
+    transform: scale(0.8);
+}
+.input-glass-sm::-webkit-calendar-picker-indicator:hover { opacity: 0.8; }
+
+.input-wrapper-icon { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; color: var(--color-fg-secondary); }
+.input-wrapper-icon:focus-within { color: var(--color-primary); }
+
+/* Customer Section */
+.section-customer { background: var(--color-bg-elevated); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); }
+.select-customer { font-size: 1.25rem; font-weight: 600; color: var(--color-fg-primary); width: 100%; border-bottom: 1px dashed var(--color-border) !important; }
+.customer-details { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.delivery-address-block { background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); }
+.select-wrapper { position: relative; display: flex; align-items: center; }
+.select-icon { position: absolute; right: 0.5rem; pointer-events: none; opacity: 0.5; }
+
+/* Tables */
+.table-container { border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+.premium-table { width: 100%; min-width: 800px; border-collapse: collapse; font-size: 0.9rem; }
+.premium-table th { background: var(--color-bg-muted); padding: 0.75rem; text-align: left; font-weight: 600; color: var(--color-fg-secondary); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.premium-table td { border-top: 1px solid var(--color-border); padding: 0.1rem; vertical-align: middle; }
+.input-table { width: 100%; background: transparent; border: none; padding: 0.6rem 0.5rem; color: var(--color-fg-primary); font-family: inherit; }
+.input-table:focus { background: var(--color-bg-elevated); outline: none; }
+.text-right { text-align: right; }
+.btn-icon-danger { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--color-fg-muted); background: transparent; border: none; cursor: pointer; }
+.btn-icon-danger:hover { color: var(--color-danger); background: rgba(239, 68, 68, 0.1); }
+.empty-state { padding: 2rem; text-align: center; color: var(--color-fg-secondary); font-style: italic; }
+
+/* Footer Grid */
+.footer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; }
+.section-header { font-size: 0.75rem; font-weight: 700; color: var(--color-fg-secondary); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 0.5rem; }
+.card-inset { background: var(--color-bg-app); border: 1px solid var(--color-border); border-radius: 6px; padding: 1rem; }
+.col-totals { display: flex; flex-direction: column; align-items: flex-end; }
+.total-row { display: flex; justify-content: space-between; padding: 0.25rem 0; font-size: 0.95rem; width: 280px; }
+.grand-total-box { background: var(--color-bg-elevated); border: 1px solid var(--color-primary-dim); border-radius: 8px; padding: 1.25rem; text-align: center; }
+.gt-label { font-size: 0.7rem; letter-spacing: 0.1em; color: var(--color-fg-secondary); margin-bottom: 0.25rem; font-weight: 700; }
+.gt-value { font-size: 2rem; font-weight: 800; color: var(--color-primary); line-height: 1; text-shadow: 0 0 20px rgba(var(--color-primary-rgb), 0.2); }
+.words-text { font-style: italic; color: var(--color-fg-secondary); text-align: right; font-size: 0.9rem; }
+.col-terms { grid-column: span 2; }
+
+/* Action Bar */
+.action-bar { margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1.5rem; display: flex; justify-content: space-between; align-items: center; }
+.toggle-switch { display: flex; background: var(--color-bg-muted); padding: 4px; border-radius: 6px; border: 1px solid var(--color-border); }
+.toggle-switch input { display: none; }
+.toggle-label { display: flex; cursor: pointer; gap: 4px; }
+.toggle-text { transition: all 0.2s; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .invoice-paper { padding: 1rem; }
+    .grid-2 { grid-template-columns: 1fr; gap: 0.5rem; }
+    .footer-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+    .col-terms { grid-column: span 1; }
+    .table-container { overflow-x: auto; }
 }
 
 .toggle-slider {
@@ -879,11 +895,40 @@ input:not(:checked) + .toggle-slider:before { background-color: #ef4444; }
     background: rgba(255,255,255,0.02);
 }
 
-@media (max-width: 768px) {
-    .section-footer-grid { grid-template-columns: 1fr; gap: 1rem; }
-    .f-words-header, .f-grand-total, .f-terms-header { margin-top: 1rem; }
-    .row-split { grid-template-columns: 1fr; text-align: center !important; gap: 0.5rem; }
-    .row-split .left, .row-split .right { text-align: center; }
-    .status-action-row { flex-direction: column; gap: 1rem; }
+/* Toggle Fix */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: auto;
+    background: var(--color-bg-muted);
+    border-radius: 6px;
+    padding: 4px;
+    border: 1px solid var(--color-border);
+}
+.toggle-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+    gap: 0;
+}
+.toggle-text {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border-radius: 4px;
+    transition: all 0.2s;
+    opacity: 0.5;
+}
+input:checked + .toggle-label .toggle-text:nth-child(2) {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22c55e;
+    opacity: 1;
+}
+input:not(:checked) + .toggle-label .toggle-text:nth-child(1) {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    opacity: 1;
 }
 </style>

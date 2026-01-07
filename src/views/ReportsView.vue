@@ -1,46 +1,194 @@
 <script setup lang="ts">
-import BaseSelect from '../components/ui/BaseSelect.vue';
-import PageHeader from '../components/ui/PageHeader.vue';
 import { ref } from 'vue';
+import PageHeader from '../components/ui/PageHeader.vue';
+import ReportBuilder from '../components/reports/ReportBuilder.vue';
+import ReportChart from '../components/reports/ReportChart.vue';
+import ReportTable from '../components/reports/ReportTable.vue';
+import { generateAdvancedReport, type ReportRow, type ChartResult } from '../services/reportService';
+import { LayoutList, PieChart } from 'lucide-vue-next';
+import StaticSalesSummary from '../components/reports/StaticSalesSummary.vue';
 
-const reportType = ref('sales');
-const reportOptions = [
-    { id: 'sales', name: 'Sales Report', value: 'sales', label: 'Sales Report' },
-    { id: 'tax', name: 'Tax Summary', value: 'tax', label: 'Tax Summary' },
-    { id: 'custom', name: 'Custom Range', value: 'custom', label: 'Custom Range' }
-];
+const isLoading = ref(false);
+const tableData = ref<ReportRow[]>([]);
+const chartData = ref<ChartResult | null>(null);
+const chartType = ref<string>('bar'); // Relaxed type
+const activeTab = ref<'dynamic' | 'static'>('dynamic');
 
+const handleGenerate = async (options: any) => {
+    isLoading.value = true;
+    try {
+        // Use user-selected chart type
+        chartType.value = options.chartType || 'bar';
+
+        const result = await generateAdvancedReport(options);
+        tableData.value = result.tableData;
+        chartData.value = result.chartData;
+    } catch (e) {
+        console.error(e);
+    } finally {
+        isLoading.value = false;
+    }
+};
 </script>
 
 <template>
 <div class="page-container">
-    <PageHeader title="Reports" :showBack="true" />
+    <div class="header-row">
+        <PageHeader title="Reports" :showBack="true" />
+        <div class="view-toggles">
+            <button 
+                :class="['toggle-btn', { active: activeTab === 'dynamic' }]" 
+                @click="activeTab = 'dynamic'"
+            >
+                <PieChart :size="16" class="icon" /> Dynamic
+            </button>
+            <button 
+                :class="['toggle-btn', { active: activeTab === 'static' }]" 
+                @click="activeTab = 'static'"
+            >
+                <LayoutList :size="16" class="icon" /> Static
+            </button>
+        </div>
+    </div>
+    
+    <!-- Dynamic Report Tab -->
+    <div v-show="activeTab === 'dynamic'">
+        <ReportBuilder @generate="handleGenerate" />
 
-    <div class="card filter-card">
-        <div class="filter-row">
-            <BaseSelect label="Report Type" v-model="reportType" :options="reportOptions" />
-            <!-- Date Range Placeholder -->
+        <div class="report-content">
+            <div v-if="isLoading" class="loading">Generating Report...</div>
+            
+            <div v-else-if="tableData.length === 0" class="empty-state">
+                No data found for the selected criteria.
+            </div>
+
+            <template v-else>
+                <!-- Chart Section -->
+                <div class="viz-section">
+                    <ReportChart 
+                        v-if="chartData"
+                        :type="chartType"
+                        :data="chartData"
+                    />
+                </div>
+                
+                <div class="divider"></div>
+
+                <!-- Table Section -->
+                <ReportTable :data="tableData" />
+            </template>
         </div>
     </div>
 
-    <div class="empty-state">
-        <div class="chart-placeholder">
-            <p>Chart Visualization Area</p>
-            <small>Select a report type to view data</small>
-        </div>
+    <!-- Static Report Tab -->
+    <div v-show="activeTab === 'static'" class="static-tab">
+        <StaticSalesSummary />
     </div>
 </div>
 </template>
 
 <style scoped>
-.page-container { padding: 0 1rem; }
-.header { margin-bottom: 2rem; }
-.header h2 { display: flex; align-items: center; gap: 0.5rem; font-size: 1.5rem; }
-.icon { color: var(--color-fg-primary); }
+.page-container { padding: 0 1rem; padding-bottom: 4rem; max-width: 1200px; margin: 0 auto; }
 
-.filter-card { margin-bottom: 2rem; }
-.filter-row { display: flex; gap: 1rem; max-width: 300px; }
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
 
-.empty-state { display: flex; justify-content: center; align-items: center; min-height: 300px; border: 2px dashed var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-muted); opacity: 0.5; }
-.chart-placeholder { text-align: center; color: var(--color-fg-secondary); }
+.view-toggles {
+    display: flex;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 2px;
+}
+
+.toggle-btn {
+    background: none;
+    border: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--color-fg-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+    color: var(--color-fg-primary);
+}
+
+.toggle-btn.active {
+    background: var(--color-bg-app);
+    color: var(--color-primary);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.icon {
+    opacity: 0.8;
+}
+
+.static-tab {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    min-height: 400px;
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.static-controls {
+    width: 100%;
+    max-width: 400px;
+    margin-bottom: 2rem;
+}
+
+.static-controls label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+    color: var(--color-fg-secondary);
+}
+
+.static-controls select {
+    width: 100%;
+    padding: 0.8rem;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-app);
+    color: var(--color-fg-primary);
+    font-size: 1rem;
+}
+
+.empty-state {
+    color: var(--color-fg-secondary);
+    font-style: italic;
+    text-align: center;
+    padding: 2rem;
+}
+
+.viz-area {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 1rem;
+    min-height: 400px;
+}
+
+.loading, .empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    color: var(--color-fg-secondary);
+    font-style: italic;
+}
 </style>

@@ -118,6 +118,7 @@ const setAsActive = async () => {
                 version: nextVersion,
                 date: new Date(),
                 items: curVerData.items,
+                summaryItem: curVerData.summaryItem, // Preserve Manual Summary
                 subTotal: curVerData.subTotal,
                 totalTax: curVerData.totalTax,
                 grandTotal: curVerData.grandTotal,
@@ -625,7 +626,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
 .gt-label { font-size: 0.8rem; color: var(--color-fg-secondary); font-weight: 600; text-transform: uppercase; margin-bottom: 0.2rem; }
 .gt-value { font-size: 1.8rem; font-weight: 700; color: var(--color-primary); line-height: 1; }
 
-.f-terms-content {}
+
 .terms-text { white-space: pre-wrap; font-size: 0.85rem; color: var(--color-fg-primary); opacity: 0.9; }
 
 @media (max-width: 900px) {
@@ -774,17 +775,18 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
     .btn-text { display: none; }
     .btn-icon-only-mobile { 
         padding: 0; 
-        width: 44px; 
-        height: 44px;
+        width: 48px; 
+        height: 48px;
         justify-content: center;
         border: 1px solid var(--color-border);
-        background-color: var(--color-bg-card); /* Ensure better contrast */
+        background-color: var(--color-bg-card);
+        border-radius: 8px; /* Softer corners */
     } 
-    .actions-group { gap: 0.75rem; width: 100%; justify-content: center; } 
-    .divider-vertical { margin: 0 0.2rem; }
+    .actions-group { gap: 1.5rem; width: 100%; justify-content: center; margin-bottom: 0.5rem; } 
+    .divider-vertical { display: none; } /* Hide divider on mobile for cleaner look */
     
     .btn-group {
-        gap: 0.5rem;
+        gap: 1.5rem; /* Match parent gap */
     }
 }
 

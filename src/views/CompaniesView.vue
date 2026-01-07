@@ -86,25 +86,49 @@ const save = async () => {
 
     <div class="grid">
         <div v-for="c in companies" :key="c.id" class="company-card card">
-            <div class="header-row">
-                <h4>{{ c.name }}</h4>
-            </div>
-            <p class="tagline" v-if="c.tagline">{{ c.tagline }}</p>
-            <div class="details">
-                <span v-if="c.invoicePrefix">Prefix: {{ c.invoicePrefix }}</span>
-                <span v-if="c.gstin">GST: {{ c.gstin }}</span>
-                <span v-if="c.phone">{{ c.phone }}</span>
-                <span v-if="c.email">{{ c.email }}</span>
-                <span v-if="c.address" class="address">{{ c.address }}</span>
-                <div v-if="c.bankName" class="bank-lite">
-                    <span>{{ c.bankName }}</span> • 
-                    <span>{{ c.accountNumber }}</span>
-                    <br/><span v-if="c.ifscCode" style="font-size: 0.7em; opacity: 0.7">IFSC: {{ c.ifscCode }}</span>
+            <div class="card-header">
+                <h4 class="text-white">{{ c.name }}</h4>
+                <div class="actions">
+                    <button @click="edit(c)" class="btn-icon"><Pencil :size="16"/></button>
+                    <button @click="confirmDelete(c.id)" class="btn-icon text-red"><Trash2 :size="16"/></button>
                 </div>
             </div>
-            <div class="actions">
-                <button @click="edit(c)" class="btn-icon"><Pencil :size="16"/></button>
-                <button @click="confirmDelete(c.id)" class="btn-icon text-red"><Trash2 :size="16"/></button>
+            
+            <p class="tagline" v-if="c.tagline">{{ c.tagline }}</p>
+            
+            <div class="details">
+                <div class="info-row flex-row" v-if="c.invoicePrefix">
+                    <span class="label">Prefix:</span>
+                    <span class="value">{{ c.invoicePrefix }}</span>
+                </div>
+                <div class="info-row flex-row" v-if="c.gstin">
+                    <span class="label">GSTIN:</span>
+                    <span class="value-mono">{{ c.gstin }}</span>
+                </div>
+                <div class="info-row flex-row" v-if="c.phone">
+                    <span class="label">M:</span>
+                    <span class="value">{{ c.phone }}</span>
+                </div>
+                 <div class="info-row flex-row" v-if="c.email">
+                    <span class="label">E:</span>
+                    <span class="value" style="word-break: break-all;">{{ c.email }}</span>
+                </div>
+
+                <div class="info-block mt-3" v-if="c.address">
+                     <p class="address">{{ c.address }}</p>
+                </div>
+
+                <div v-if="c.bankName" class="bank-section mt-3">
+                    <div class="section-label" style="margin-bottom: 0.25rem;">BANK DETAILS</div>
+                    <div class="bank-row">
+                        <span class="value text-white">{{ c.bankName }}</span>
+                        <span class="text-sec" v-if="c.accountNumber">• {{ c.accountNumber }}</span>
+                    </div>
+                    <div class="info-row flex-row" v-if="c.ifscCode" style="margin-top: 0.2rem;">
+                         <span class="label" style="font-size: 0.7rem;">IFSC:</span>
+                         <span class="value" style="font-size: 0.7rem; opacity: 0.8;">{{ c.ifscCode }}</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -170,21 +194,53 @@ const save = async () => {
 .page-container { padding: 0 1rem; }
 /* .header remove */
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
-.company-card { position: relative; display: flex; flex-direction: column; gap: 0.5rem; }
-.tagline { color: var(--color-fg-muted); font-style: italic; font-size: 0.8rem; }
-.details { font-size: 0.8rem; color: var(--color-fg-secondary); display: flex; flex-direction: column; gap: 0.2rem; margin-top: auto; padding-top: 1rem; }
-.address { white-space: pre-line; opacity: 0.8; margin-top: 0.2rem; }
-.bank-lite { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--color-border); font-size: 0.75rem; }
-.actions { position: absolute; top: 1rem; right: 1rem; display: flex; gap: 0.5rem; opacity: 0; transition: opacity 0.2s; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
+.company-card { position: relative; display: flex; flex-direction: column; gap: 0.5rem; min-height: 280px; }
+.card-header { margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; }
+.card-header h4 { font-size: 1.1rem; font-weight: 600; }
+
+.tagline { color: var(--color-fg-muted); font-style: italic; font-size: 0.8rem; margin-bottom: 0.5rem; }
+.details { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; }
+
+.info-row { font-size: 0.9rem; margin-bottom: 0.25rem; }
+.flex-row { display: flex; gap: 0.5rem; align-items: baseline; }
+.label { color: var(--color-fg-secondary); font-size: 0.8rem; font-weight: 600; min-width: 40px; }
+.value { color: var(--color-fg-primary); }
+.value-mono { font-family: var(--font-mono); color: var(--color-fg-primary); letter-spacing: 0.5px; }
+
+.address { white-space: pre-line; color: var(--color-fg-secondary); font-size: 0.85rem; line-height: 1.5; }
+.bank-section { padding-top: 0.5rem; border-top: 1px solid var(--color-border); }
+.section-label { font-size: 0.65rem; font-weight: 700; color: var(--color-fg-tertiary); letter-spacing: 0.1em; text-transform: uppercase; }
+
+.actions { display: flex; gap: 0.5rem; opacity: 0.4; transition: opacity 0.2s; }
 .company-card:hover .actions { opacity: 1; }
-.btn-icon { background: none; border: none; color: var(--color-fg-secondary); cursor: pointer; padding: 4px; border-radius: 4px; }
-.btn-icon:hover { background: var(--color-bg-muted); color: var(--color-fg-primary); }
-.text-red:hover { color: var(--color-danger); }
+.btn-icon { background: rgba(255,255,255,0.05); border: none; color: var(--color-fg-primary); cursor: pointer; padding: 6px; border-radius: 4px; }
+.btn-icon:hover { background: var(--color-primary); color: #000; }
+.text-red:hover { background: var(--color-danger); color: white; }
+
+.text-white { color: var(--color-fg-primary); }
+.text-sec { color: var(--color-fg-secondary); }
+.mt-3 { margin-top: 0.75rem; }
 
 /* Modal */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 50; backdrop-filter: blur(2px); }
-.modal { width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+/* Modal */
+.modal-overlay { 
+    position: fixed; 
+    inset: 0; 
+    background: rgba(0,0,0,0.7); 
+    display: flex; 
+    align-items: flex-start; 
+    justify-content: center; 
+    z-index: 50; 
+    backdrop-filter: blur(2px); 
+    padding-top: 6rem; 
+    padding-bottom: 10rem; 
+    overflow-y: auto; 
+}
+@media (max-width: 640px) {
+    .modal-overlay { padding-top: 8rem; }
+}
+.modal { width: 100%; max-width: 500px; height: auto; }
 .form-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; margin: 1.5rem 0; }
 .full-width { grid-column: 1 / -1; }
 .bank-grid { display: grid; grid-template-columns: 1fr; gap: 0.5rem; }

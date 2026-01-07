@@ -22,6 +22,8 @@ const appSettings = ref({
     pdfMarginBottom: 15,
     // PDF Fonts
     pdfFontCompany: 'helvetica',
+    pdfFontCompanyBold: true,
+    pdfFontCompanyItalic: false,
     pdfFontBody: 'helvetica',
     // PDF Config
     pdfPageSizeInvoice: 'a4',
@@ -102,44 +104,34 @@ const save = async () => {
     }
 };
 
-const seedData = async () => {
-    if (!confirm('This will add demo data (Companies, Customers, Products). Continue?')) return;
+const canSeed = ref(false);
+
+const loadSeedingStatus = async () => {
+    try {
+        const { isDbEmpty } = await import('../services/seedService');
+        canSeed.value = await isDbEmpty();
+    } catch (e) {
+        console.error("Failed to check DB status", e);
+    }
+};
+
+const handleSeedData = async () => {
+    if (!confirm('This will add demo data (Companies, Customers, Products, Invoices). Continue?')) return;
     
     try {
-        await db.transaction('rw', db.companies, db.customers, db.products, async () => {
-            // Companies
-            if ((await db.companies.count()) === 0) {
-                 await db.companies.bulkAdd([
-                    { name: "TechNova Solutions", tagline: "Innovating the Future", gstin: "29AAAAA0000A1Z5", address: "123 Silicon Valley, Bangalore, KA 560100", phone: "9988776655", email: "accounts@technova.com", invoicePrefix: "TN", bankName: "HDFC Bank", accountNumber: "50100012345678", ifscCode: "HDFC0001234" },
-                    { name: "GreenEarth Agro", tagline: "Sustainable Farming", gstin: "29BBBBB1111B1Z6", address: "45 Farm Road, Mysore, KA 570001", phone: "9876543210", email: "sales@greenearth.com", invoicePrefix: "GE", bankName: "State Bank of India", accountNumber: "30001234567", ifscCode: "SBIN0001234" }
-                ]);
-            }
-            
-            // Customers
-            if ((await db.customers.count()) === 0) {
-                await db.customers.bulkAdd([
-                    { name: "Global Traders Ltd", gstin: "27CCCCC2222C1Z7", address: "88 Market Street, Mumbai, MH 400001", phone: "022-12345678", email: "purchasing@globaltraders.com", placeOfSupply: "Maharashtra" },
-                    { name: "Ravi Enterprises", gstin: "29DDDDD3333D1Z8", address: "12 Industrial Area, Tumkur, KA 572101", phone: "9123456789", email: "ravi@enterprises.com", placeOfSupply: "Karnataka" }
-                ]);
-            }
-
-            // Products
-             if ((await db.products.count()) === 0) {
-                await db.products.bulkAdd([
-                    { name: "Web Development Service", description: "Custom Website Design & Development", hsn: "9983", unitPrice: 25000, taxRate: 18 },
-                    { name: "Annual Maintenance Contract", description: "Server & Software AMC", hsn: "9973", unitPrice: 12000, taxRate: 18 },
-                    { name: "Cement (50kg Bag)", description: "UltraGrade 53 Cement", hsn: "2523", unitPrice: 420, taxRate: 28 },
-                    { name: "Steel Rods (1 Ton)", description: "TMT Bars 12mm", hsn: "7214", unitPrice: 65000, taxRate: 18 }
-                ]);
-            }
-        });
-        alert('Demo Data Added!');
+        const { seedDemoData } = await import('../services/seedService');
+        await seedDemoData();
+        alert('Demo Data Added! Please refresh to see changes in Reports.');
+        canSeed.value = false; // Disable button after seeding
     } catch (e: any) {
         alert('Error seeding data: ' + e.message);
     }
 };
 
-onMounted(loadSettings);
+onMounted(async () => {
+    await loadSettings();
+    await loadSeedingStatus();
+});
 </script>
 
 <template>
@@ -147,34 +139,24 @@ onMounted(loadSettings);
     <PageHeader title="Settings" :showBack="true" />
 
     <div class="card settings-card">
-        <h3>App Preferences</h3>
-        <div class="form-grid">
-            <BaseInput label="Theme" v-model="appSettings.theme" disabled />
-            <BaseInput label="Currency" v-model="appSettings.currency" />
-            <BaseInput label="Language" v-model="appSettings.language" />
-            <BaseInput label="Language" v-model="appSettings.language" />
-        </div>
-
-        <h3 style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">PDF Configuration</h3>
+        <h3 style="margin-top: 0; padding-top: 0;">PDF Configuration</h3>
         <div class="form-grid">
              <div class="input-group">
                 <label>Page Size (Invoice)</label>
                 <select v-model="appSettings.pdfPageSizeInvoice" class="base-select">
                     <option value="a4">A4 (210mm x 297mm)</option>
-                    <option value="letter">Letter (8.5in x 11in)</option>
-                    <option value="legal">Legal (8.5in x 14in)</option>
-                    <option value="a5">A5 (148mm x 210mm)</option>
-                    <option value="a6">A6 (105mm x 148mm)</option>
+                    <option value="letter">Letter (216mm x 279mm)</option>
+                    <option value="executive">Executive (184mm x 267mm)</option>
+                    <option value="b5">B5 (176mm x 250mm)</option>
                 </select>
             </div>
              <div class="input-group">
                 <label>Page Size (Challan)</label>
                 <select v-model="appSettings.pdfPageSizeChallan" class="base-select">
                     <option value="a4">A4 (210mm x 297mm)</option>
-                    <option value="letter">Letter (8.5in x 11in)</option>
-                    <option value="legal">Legal (8.5in x 14in)</option>
-                    <option value="a5">A5 (148mm x 210mm)</option>
-                    <option value="a6">A6 (105mm x 148mm)</option>
+                    <option value="letter">Letter (216mm x 279mm)</option>
+                    <option value="executive">Executive (184mm x 267mm)</option>
+                    <option value="b5">B5 (176mm x 250mm)</option>
                 </select>
             </div>
              <div class="input-group">
@@ -200,6 +182,14 @@ onMounted(loadSettings);
                     <option value="courier">Courier (Standard)</option>
                     <option v-for="f in fontList" :key="f.id" :value="f.name">{{ f.name }} (Custom)</option>
                 </select>
+                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                    <label class="checkbox-label">
+                        <input type="checkbox" v-model="appSettings.pdfFontCompanyBold"> Bold
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" v-model="appSettings.pdfFontCompanyItalic"> Italic
+                    </label>
+                </div>
             </div>
 
             <div class="input-group">
@@ -251,7 +241,9 @@ onMounted(loadSettings);
         </div>
 
         <div class="actions">
-             <BaseButton variant="secondary" @click="seedData" style="margin-right: auto;">Seed Demo Data</BaseButton>
+             <BaseButton variant="secondary" @click="handleSeedData" :disabled="!canSeed" style="margin-right: auto;">
+                 {{ canSeed ? 'Seed Demo Data' : 'Data Already Exists' }}
+             </BaseButton>
             <BaseButton @click="save">Save Settings</BaseButton>
         </div>
     </div>
@@ -259,11 +251,15 @@ onMounted(loadSettings);
 </template>
 
 <style scoped>
-.page-container { padding: 0 1rem; }
+.page-container { padding: 0 1rem 15rem 1rem; }
 .header { margin-bottom: 2rem; }
 .header h2 { display: flex; align-items: center; gap: 0.5rem; font-size: 1.5rem; }
 .icon { color: var(--color-fg-primary); }
+.icon { color: var(--color-fg-primary); }
 .settings-card { max-width: 600px; padding-bottom: 2rem; }
+.form-grid { display: grid; gap: 1rem; margin: 1.5rem 0; }
+.checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--color-fg-primary); cursor: pointer; }
+.checkbox-label input { width: auto; margin: 0; }
 .form-grid { display: grid; gap: 1rem; margin: 1.5rem 0; }
 .actions { display: flex; justify-content: flex-end; margin-top: 2rem; }
 
@@ -284,11 +280,7 @@ onMounted(loadSettings);
     background-repeat: no-repeat;
     background-position: right 1rem center;
     background-size: 1em;
-    color-scheme: dark;
-}
-.base-select option {
-    background: var(--color-bg-muted);
-    color: var(--color-fg-primary);
+    background-size: 1em;
 }
 .input-group label {
     display: block;

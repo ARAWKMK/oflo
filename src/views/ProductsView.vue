@@ -84,18 +84,29 @@ const save = async () => {
 
     <div class="grid">
         <div v-for="p in products" :key="p.id" class="product-card card">
-            <div class="header-row">
-                <h4>{{ p.name }}</h4>
+            <div class="card-header">
+                <h4 class="text-white">{{ p.name }}</h4>
+                <div class="actions">
+                    <button @click="edit(p)" class="btn-icon"><Pencil :size="16"/></button>
+                    <button @click="confirmDelete(p.id)" class="btn-icon text-red"><Trash2 :size="16"/></button>
+                </div>
             </div>
-            <p class="desc" v-if="p.description">{{ p.description }}</p>
+            
             <div class="details">
-                <span class="price">₹{{ p.unitPrice }}</span>
-                <span>GST: {{ p.taxRate }}%</span>
-                <span>HSN: {{ p.hsn }}</span>
-            </div>
-            <div class="actions">
-                <button @click="edit(p)" class="btn-icon"><Pencil :size="16"/></button>
-                <button @click="confirmDelete(p.id)" class="btn-icon text-red"><Trash2 :size="16"/></button>
+                 <p class="desc" v-if="p.description">{{ p.description }}</p>
+
+                 <div class="info-row flex-row mt-3">
+                    <span class="label">Price:</span>
+                    <span class="value text-white" style="font-size: 1.1rem; font-weight: 600;">₹{{ p.unitPrice }}</span>
+                 </div>
+                 <div class="info-row flex-row">
+                    <span class="label">Tax:</span>
+                    <span class="value">{{ p.taxRate }}%</span>
+                 </div>
+                 <div class="info-row flex-row" v-if="p.hsn">
+                    <span class="label">HSN:</span>
+                    <span class="value-mono">{{ p.hsn }}</span>
+                 </div>
             </div>
         </div>
     </div>
@@ -140,20 +151,49 @@ const save = async () => {
 .page-container { padding: 0 1rem; }
 /* .header remove - replaced by PageHeader */
 
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
-.product-card { position: relative; display: flex; flex-direction: column; gap: 0.5rem; }
-.desc { color: var(--color-fg-muted); font-size: 0.8rem; margin: 0; }
-.details { font-size: 0.8rem; color: var(--color-fg-secondary); display: flex; flex-direction: column; gap: 0.2rem; margin-top: auto; padding-top: 1rem; }
-.price { font-weight: bold; font-size: 1rem; color: var(--color-fg-primary); margin-bottom: 0.2rem; }
-.actions { position: absolute; top: 1rem; right: 1rem; display: flex; gap: 0.5rem; opacity: 0; transition: opacity 0.2s; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem; }
+.product-card { position: relative; display: flex; flex-direction: column; gap: 0.5rem; min-height: 200px; }
+
+.card-header { margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; }
+.card-header h4 { font-size: 1.1rem; font-weight: 600; }
+
+.desc { color: var(--color-fg-muted); font-size: 0.9rem; margin-bottom: 0.5rem; line-height: 1.4; font-style: italic; }
+.details { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; }
+
+.info-row { font-size: 0.9rem; margin-bottom: 0.25rem; }
+.flex-row { display: flex; gap: 0.5rem; align-items: baseline; }
+.label { color: var(--color-fg-secondary); font-size: 0.8rem; font-weight: 600; min-width: 40px; }
+.value { color: var(--color-fg-primary); }
+.value-mono { font-family: var(--font-mono); color: var(--color-fg-primary); letter-spacing: 0.5px; }
+
+.actions { display: flex; gap: 0.5rem; opacity: 0.4; transition: opacity 0.2s; }
 .product-card:hover .actions { opacity: 1; }
-.btn-icon { background: none; border: none; color: var(--color-fg-secondary); cursor: pointer; padding: 4px; border-radius: 4px; }
-.btn-icon:hover { background: var(--color-bg-muted); color: var(--color-fg-primary); }
-.text-red:hover { color: var(--color-danger); }
+.btn-icon { background: rgba(255,255,255,0.05); border: none; color: var(--color-fg-primary); cursor: pointer; padding: 6px; border-radius: 4px; }
+.btn-icon:hover { background: var(--color-primary); color: #000; }
+.text-red:hover { background: var(--color-danger); color: white; }
+
+.text-white { color: var(--color-fg-primary); }
+.mt-3 { margin-top: auto; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); }
 
 /* Modal */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 50; backdrop-filter: blur(2px); }
-.modal { width: 100%; max-width: 500px; }
+/* Modal */
+.modal-overlay { 
+    position: fixed; 
+    inset: 0; 
+    background: rgba(0,0,0,0.7); 
+    display: flex; 
+    align-items: flex-start; 
+    justify-content: center; 
+    z-index: 50; 
+    backdrop-filter: blur(2px); 
+    padding-top: 6rem; 
+    padding-bottom: 10rem; 
+    overflow-y: auto; 
+}
+@media (max-width: 640px) {
+    .modal-overlay { padding-top: 8rem; }
+}
+.modal { width: 100%; max-width: 500px; height: auto; }
 .form-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; margin: 1.5rem 0; }
 .full-width { grid-column: 1 / -1; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 1rem; }

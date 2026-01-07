@@ -20,10 +20,14 @@ export interface Customer {
     name: string;
     gstin: string;
     address: string;
-    deliveryAddress?: string; // Added v3
     phone: string;
     email: string;
     placeOfSupply?: string;
+
+    // v3 Updates
+    deliveryAddresses?: string[];
+    enableDelivery?: boolean;
+    deliveryAddress?: string; // Deprecated but kept for type safety during migration
 }
 
 export interface Product {
@@ -73,6 +77,7 @@ export interface Invoice {
     vehicleNumber?: string;
     currentVersionId?: number;
     grandTotal: number;
+    status?: 'draft' | 'final'; // v4
 }
 
 export interface InvoiceVersion {
@@ -120,6 +125,27 @@ export class OfloDB extends Dexie {
 
     constructor() {
         super('OfloDB');
+
+        // Define Version 5 (v3 Update: Multi-Address)
+        this.version(5).stores({
+            companies: '++id, name, gstin',
+            customers: '++id, name, gstin',
+            products: '++id, name, sku',
+            invoices: '++id, invoiceNumber, currentVersionId, customerId, date, status',
+            invoiceVersions: '++id, invoiceId, version, date',
+            settings: 'key',
+            fonts: '++id, name'
+        }).upgrade(async tx => {
+            // Migration v5: Initialize deliveryAddresses from existing address
+            await tx.table('customers').toCollection().modify(c => {
+                if (!c.deliveryAddresses) {
+                    c.deliveryAddresses = c.deliveryAddress ? [c.deliveryAddress] : (c.address ? [c.address] : []);
+                }
+                if (c.enableDelivery === undefined) {
+                    c.enableDelivery = false;
+                }
+            });
+        });
 
         // Define Version 4
         this.version(4).stores({

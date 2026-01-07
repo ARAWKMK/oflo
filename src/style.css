@@ -1,47 +1,62 @@
 :root {
-    /* HSL Colors: Monochrome Premium */
+    /* PREMIUM NEUTRAL DARK (Zinc/Sajid Style) */
+
+    /* Backgrounds */
     --color-bg-app: #09090b;
-    /* Zinc 950 */
-    --color-bg-card: #18181b;
-    /* Zinc 900 */
-    --color-bg-muted: #27272a;
-    /* Zinc 800 */
+    /* Zinc 950 (Deepest matte black) */
+    --color-bg-card: #121212;
+    /* Slightly Lighter Black */
+    --color-bg-elevated: #18181b;
+    /* Zinc 900 (Panels) */
+    --color-bg-input: #09090b;
+    /* Deep recessed inputs */
 
+    /* Text */
     --color-fg-primary: #fafafa;
-    /* Zinc 50 */
+    /* Zinc 50 (High Contrast) */
     --color-fg-secondary: #a1a1aa;
-    /* Zinc 400 */
-    --color-fg-muted: #52525b;
-    /* Zinc 600 */
+    /* Zinc 400 (Subtle) */
+    --color-fg-tertiary: #52525b;
+    /* Zinc 600 (Muted) */
 
+    /* Borders & Accents */
     --color-border: #27272a;
-    /* Zinc 800 */
+    /* Zinc 800 (Subtle) */
     --color-border-hover: #3f3f46;
     /* Zinc 700 */
+    --color-ring: rgba(250, 250, 250, 0.15);
+    /* Focus Glow */
 
+    /* Primaries */
     --color-primary: #fafafa;
     /* White */
-    --color-primary-fg: #09090b;
-    /* Black */
+    --color-primary-fg: #000000;
+    /* Black Text on White */
 
-    --color-accent: #27272a;
-    /* Zinc 800 */
+    /* Semantic */
     --color-danger: #ef4444;
-    /* Red 500 */
     --color-success: #10b981;
-    /* Emerald 500 */
+    --color-warning: #f59e0b;
 
     /* Radius */
-    --radius-sm: 4px;
+    --radius-sm: 6px;
     --radius-md: 8px;
     --radius-lg: 12px;
 
     /* Typography */
+    --font-sans: 'Inter', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
-    --font-sans: 'Inter', sans-serif;
+
+    /* Effects (The "Premium" Sauce) */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-input: inset 0 2px 4px 0 rgb(0 0 0 / 0.5);
+    /* Inner shadow for depth */
+    --shadow-glow: 0 0 0 4px var(--color-ring);
+    /* Focus ring spread */
 }
 
-/* Reset */
+/* Reset & Base */
 *,
 *::before,
 *::after {
@@ -53,84 +68,99 @@
 body {
     background-color: var(--color-bg-app);
     color: var(--color-fg-primary);
-    font-family: var(--font-mono);
+    font-family: var(--font-sans);
+    /* Switch to Inter by default */
     -webkit-font-smoothing: antialiased;
     line-height: 1.5;
     min-height: 100vh;
-    overflow-x: hidden;
-    /* Prevent horizontal scroll */
-    width: 100%;
 }
 
-/* Utilities */
+/* Typography Utilities */
+h1,
+h2,
+h3,
+h4 {
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    color: var(--color-fg-primary);
+}
+
+.font-mono {
+    font-family: var(--font-mono);
+}
+
+.text-sec {
+    color: var(--color-fg-secondary);
+}
+
+.text-sm {
+    font-size: 0.875rem;
+}
+
+/* Premium Components */
+
+/* 1. Buttons: Tactile & Glowing */
 .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
     padding: 0.5rem 1rem;
-    border-radius: var(--radius-sm);
-    font-family: var(--font-mono);
-    font-weight: 500;
+    border-radius: var(--radius-md);
     font-size: 0.875rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     border: 1px solid transparent;
 }
 
 .btn-primary {
-    background-color: var(--color-primary);
-    color: var(--color-primary-fg);
-}
-
-.btn-compact {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    line-height: 1.1;
-    text-align: right;
-    padding: 0.4rem 0.8rem;
-    height: auto;
-}
-
-.btn-compact span {
-    font-size: 0.8rem;
-    font-weight: 600;
-    display: block;
+    background: linear-gradient(to bottom, #ffffff, #e4e4e7);
+    /* Subtle white gradient */
+    color: #000000;
+    border: 1px solid #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .btn-primary:hover {
-    opacity: 0.9;
+    filter: brightness(0.95);
+    transform: translateY(-1px);
 }
 
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+.btn-secondary,
 .btn-ghost {
-    background-color: transparent;
-    color: var(--color-fg-secondary);
-}
-
-.btn-ghost:hover {
-    background-color: var(--color-bg-muted);
+    background: var(--color-bg-elevated);
     color: var(--color-fg-primary);
-}
-
-.card {
-    background-color: var(--color-bg-card);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    padding: 1.5rem;
 }
 
+.btn-secondary:hover {
+    border-color: var(--color-fg-secondary);
+    background: var(--color-ring);
+}
+
+/* 2. Inputs: Recessed Depth */
 input,
 select,
 textarea {
-    background-color: var(--color-bg-app);
+    background-color: var(--color-bg-input);
     border: 1px solid var(--color-border);
     color: var(--color-fg-primary);
     border-radius: var(--radius-sm);
-    padding: 0.5rem;
-    font-family: var(--font-mono);
+    padding: 0.6rem 0.75rem;
+    font-family: var(--font-sans);
+    /* Use Sans for inputs too */
     font-size: 0.875rem;
     width: 100%;
+    box-shadow: var(--shadow-input);
+    /* KEY: Inner shadow */
+    transition: all 0.2s;
+    color-scheme: dark;
 }
 
 input:focus,
@@ -138,11 +168,66 @@ select:focus,
 textarea:focus {
     outline: none;
     border-color: var(--color-fg-secondary);
+    box-shadow: var(--shadow-glow);
+    /* Spread glow */
+}
+
+/* 3. Cards: Surface & Gradient */
+.card {
+    background-color: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    /* Optional: Subtle top highlight for 3D edge */
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.03);
+}
+
+/* Utilities */
+.glass-panel {
+    background: rgba(24, 24, 27, 0.7);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.flex-col {
+    display: flex;
+    flex-direction: column;
+}
+
+.gap-2 {
+    gap: 0.5rem;
+}
+
+.gap-4 {
+    gap: 1rem;
 }
 
 label {
     display: block;
     font-size: 0.75rem;
+    font-weight: 500;
     color: var(--color-fg-secondary);
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Global Mobile Scroll Padding */
+@media (max-width: 640px) {
+    .page-container {
+        padding-bottom: 8rem !important;
+    }
+}
+
+/* Global Dark Mode for Select Options */
+select option {
+    background-color: #18181b;
+    /* Zinc 900 (Matches bg-elevated) */
+    color: #fafafa;
 }

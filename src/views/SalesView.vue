@@ -35,11 +35,8 @@ const enrichedInvoices = computed(() => {
         };
     }) || [];
 
-    // Sort by Date Descending, then ID Descending
+    // Sort by ID Descending (Latest Created First)
     return all.sort((a, b) => {
-        const d1 = new Date(a.date).getTime();
-        const d2 = new Date(b.date).getTime();
-        if (d1 !== d2) return d2 - d1;
         return (b.id || 0) - (a.id || 0);
     });
 });
