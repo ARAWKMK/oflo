@@ -99,44 +99,7 @@ export const generateInvoicePDF = (data: any, settings: any) => {
     // Tighten: Remove bottom padding (Keep top footerPad)
     const wordsBoxH = Math.max(10, wTextHeight + footerPad);
 
-    // 2. Terms Box Height (Full Width V42)
-    // NOTE: termsMaxW should now be relative to contentWidth if full width, but code below uses leftBoxWidth?
-    // Wait, implementation plan said terms is full width.
-    // Let's make terms full width too as usually terms are long.
-    // Refactoring Terms to Full Width
-    const termsMaxW = contentWidth - 6;
-    let tOps: { text: string; isBold: boolean }[] = [];
 
-    // Parse Input
-    const rawTerms = data.sellerDetails.terms ||
-        "1. Payment due within 90 days\n2. Interest @18% p.a. will be charged on delayed payments\n3. Subject to local jurisdiction only";
-
-    const paragraphs = rawTerms.split('\n');
-
-    paragraphs.forEach((p: string) => {
-        let lineText = p.trim();
-        let isBold = false;
-        if (lineText.startsWith('*')) {
-            isBold = true;
-            lineText = lineText.substring(1).trim();
-        }
-
-        // Measure with correct font
-        doc.setFontSize(settings.contentHeader);
-        setFont('body', isBold ? 'bold' : 'normal');
-
-        const splitLines = doc.splitTextToSize(lineText, termsMaxW);
-        splitLines.forEach((l: string) => {
-            tOps.push({ text: l, isBold });
-        });
-    });
-
-    const th = settings.contentHeader * ptToMm;
-    const termsHeadH = settings.header * ptToMm;
-    const termsContentH = tOps.length * th * 1.3;
-    // Correct Calculation: 
-    // Top Offset (footerPad + termsHeadH) + Gap (5) + Content (termsContentH) + Bottom Buffer (2)
-    const termsBoxH = footerPad + termsHeadH + 5 + termsContentH + 2;
 
     // 3. Bank/Totals Height (Dynamic Max)
     // Bank Calc
@@ -180,10 +143,8 @@ export const generateInvoicePDF = (data: any, settings: any) => {
     // [Row 2: Words (wordsBoxH)]
     // [Gap 8] (User Requested 8mm)
     // [Row 3: Terms (termsBoxH)]
-    const totalFooterHeight = boxHeightLocal + 2 + wordsBoxH + 8 + termsBoxH;
-
     // Anchor to Bottom 5mm (Red Zone Logic)
-    const footerEndY = pageHeight - settings.marginBottom;
+    // const footerEndY = pageHeight - settings.marginBottom;
 
 
 
@@ -265,6 +226,7 @@ export const generateInvoicePDF = (data: any, settings: any) => {
         doc.text(':', leftX + box1LeftLabelW, leftCursorY);
         doc.text(data.sellerDetails.phone, contentX, leftCursorY);
     }
+    leftCursorY += lineHeight; // Fix: Ensure left cursor reflects full height
 
     // Meta Data
     const splitRatio = 0.6;
@@ -811,6 +773,7 @@ export const generateChallanPDF = (data: any, settings: any, type: 'Internal' | 
     doc.text('Phone', leftX, leftCursorY);
     doc.text(':', leftX + box1LeftLabelW, leftCursorY);
     doc.text(data.sellerDetails.phone || '-', contentX, leftCursorY);
+    leftCursorY += lineHeight; // Fix: Ensure left cursor reflects full height for border
 
     const splitRatio = 0.6;
     const metaX = marginLeft + (contentWidth * splitRatio);

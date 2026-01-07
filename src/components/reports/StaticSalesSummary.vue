@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { type GroupOption, type MetricOption } from '../../services/reportService';
+import { type GroupOption } from '../../services/reportService';
 import BaseButton from '../ui/BaseButton.vue';
 import ReportTable from './ReportTable.vue';
 import { generateAdvancedReport, type ReportRow } from '../../services/reportService';
