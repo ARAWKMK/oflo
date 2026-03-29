@@ -344,15 +344,20 @@ export const generateInvoicePDF = (data: any, settings: any) => {
     // --- TABLE ---
     const bodyFont = settings.fontBody;
 
-    // Hardcode Description (User Request v49)
-    // First line always 'PLASTIC REPROCESS GRANULES'
+    // Dynamic Product Name (v4)
     if (tableBody.length > 0) {
         tableBody.forEach((row: any) => {
             // row[1] is Description
             const parts = row[1].toString().split('\n');
             // Keep the second line (Bags info) if it exists
             const bagsLine = parts.length > 1 ? parts[1] : '';
-            row[1] = `PLASTIC REPROCESS GRANULES\n${bagsLine}`;
+            
+            // v4: Use summaryItem.invoiceProductName if available
+            const prodName = (data.summaryItem && data.summaryItem.invoiceProductName) 
+                ? data.summaryItem.invoiceProductName 
+                : 'PLASTIC REPROCESS GRANULES';
+
+            row[1] = `${prodName}\n${bagsLine}`;
         });
     }
 

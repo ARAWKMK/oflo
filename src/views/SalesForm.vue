@@ -30,7 +30,8 @@ const state = reactive({
     deliveryAddress: '', 
     summaryItem: {
         description: '', hsn: '', numberOfBags: 0, quantity: 0,
-        unitPrice: 0, taxRate: 18, taxAmount: 0, totalAmount: 0
+        unitPrice: 0, taxRate: 18, taxAmount: 0, totalAmount: 0,
+        invoiceProductName: ''
     },
     items: [] as any[],
     status: 'final' 
@@ -58,15 +59,20 @@ const showDeliveryDropdown = computed(() => {
     return selectedCustomer.value?.enableDelivery && availableDeliveryAddresses.value.length > 0;
 });
 
-// Watcher: Auto-select Delivery Address
+// Watcher: Auto-select Delivery Address & Invoice Product Name
 watch(() => state.customerId, (newId) => {
     if (newId) {
         const c = customers.value?.find(x => x.id === newId);
         if (c) {
+            // Delivery Address
             if (c.enableDelivery && c.deliveryAddresses?.length) {
                 state.deliveryAddress = c.deliveryAddresses[0];
             } else {
-                state.deliveryAddress = ''; // Reset if disabled
+                state.deliveryAddress = ''; 
+            }
+            // Invoice Product Name (v4)
+            if (c.invoiceProductName) {
+                state.summaryItem.invoiceProductName = c.invoiceProductName;
             }
         }
     }
@@ -132,7 +138,10 @@ onMounted(async () => {
                 }));
 
                 if (ver.summaryItem) {
-                    state.summaryItem = { ...ver.summaryItem };
+                    state.summaryItem = { 
+                        ...ver.summaryItem,
+                        invoiceProductName: ver.summaryItem.invoiceProductName || ''
+                    };
                 } else {
                     performSummaryCalculation();
                 }
@@ -203,7 +212,8 @@ const performSummaryCalculation = () => {
             numberOfBags: sumBags,
             quantity: sumQty,
             taxAmount: 0, // Will be calc by recalculateSummary
-            totalAmount: 0 // Will be calc by recalculateSummary
+            totalAmount: 0, // Will be calc by recalculateSummary
+            invoiceProductName: state.summaryItem.invoiceProductName || ''
         };
     } else {
         // Partial Sync (Preserve Manual Price/Desc, Update Qty only)
@@ -537,17 +547,19 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
                 <table class="premium-table">
                     <thead>
                         <tr>
-                            <th style="width: 30%">Description</th>
+                            <th style="width: 20%">Product Name</th>
+                            <th style="width: 20%">Description</th>
                             <th style="width: 10%; text-align: center;">HSN</th>
                             <th style="width: 10%; text-align: right;">Bags</th>
                             <th style="width: 10%; text-align: right;">Qty</th>
                             <th style="width: 10%; text-align: right;">Price</th>
-                            <th style="width: 10%; text-align: right;">Tax %</th>
+                            <th style="width: 5%; text-align: right;">Tax %</th>
                             <th style="width: 15%; text-align: right;">Taxable</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
+                            <td><input v-model="state.summaryItem.invoiceProductName" class="input-table" placeholder="e.g. HDPE GRANULES" /></td>
                             <td><input v-model="state.summaryItem.description" class="input-table" /></td>
                             <td><input v-model="state.summaryItem.hsn" class="input-table" /></td>
                             <td><input type="number" v-model="state.summaryItem.numberOfBags" class="input-table text-right" /></td>

@@ -414,17 +414,19 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                              <table class="compact-table">
                                 <thead>
                                     <tr>
-                                        <th style="width: 30%">Description</th>
+                                        <th style="width: 20%">Product Name</th>
+                                        <th style="width: 20%">Description</th>
                                         <th style="width: 10%">HSN</th>
                                         <th style="width: 10%">Bags</th>
                                         <th style="width: 10%">Qty</th>
                                         <th style="width: 10%">Price</th>
-                                        <th style="width: 10%">Tax %</th>
+                                        <th style="width: 5%">Tax %</th>
                                         <th style="width: 15%">Taxable</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-if="currentVersion.summaryItem">
+                                        <td>{{ currentVersion.summaryItem.invoiceProductName || '---' }}</td>
                                         <td>{{ currentVersion.summaryItem.description }}</td>
                                         <td>{{ currentVersion.summaryItem.hsn }}</td>
                                         <td class="text-right">{{ currentVersion.summaryItem.numberOfBags }}</td>
@@ -435,6 +437,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                                     </tr>
                                     <!-- Fallback for Old Versions without Summary Item -->
                                     <tr v-else>
+                                         <td>PLASTIC REPROCESS GRANULES</td> <!-- Hardcoded fallback for v1-v3 -->
                                          <td>{{ currentVersion.items[0]?.description || '---' }}</td>
                                          <td>{{ currentVersion.items[0]?.hsn || '---' }}</td>
                                          <td class="text-right">{{ currentVersion.items.reduce((s,i)=>s+(Number(i.numberOfBags)||0),0) }}</td>

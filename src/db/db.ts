@@ -28,6 +28,9 @@ export interface Customer {
     deliveryAddresses?: string[];
     enableDelivery?: boolean;
     deliveryAddress?: string; // Deprecated but kept for type safety during migration
+
+    // v4 Updates
+    invoiceProductName?: string;
 }
 
 export interface Product {
@@ -67,6 +70,8 @@ export interface InvoiceSummaryItem {
     taxRate: number;
     taxAmount: number;
     totalAmount: number;
+    // v4
+    invoiceProductName?: string; 
 }
 
 export interface Invoice {
@@ -125,6 +130,24 @@ export class OfloDB extends Dexie {
 
     constructor() {
         super('OfloDB');
+
+        // Define Version 6 (v4: Dynamic Product Name)
+        this.version(6).stores({
+            companies: '++id, name, gstin',
+            customers: '++id, name, gstin',
+            products: '++id, name, sku',
+            invoices: '++id, invoiceNumber, currentVersionId, customerId, date, status',
+            invoiceVersions: '++id, invoiceId, version, date',
+            settings: 'key',
+            fonts: '++id, name'
+        }).upgrade(async tx => {
+            // Migration v6: Initialize invoiceProductName for customers if missing
+            await tx.table('customers').toCollection().modify(c => {
+                if (!c.invoiceProductName) {
+                    c.invoiceProductName = ''; 
+                }
+            });
+        });
 
         // Define Version 5 (v3 Update: Multi-Address)
         this.version(5).stores({

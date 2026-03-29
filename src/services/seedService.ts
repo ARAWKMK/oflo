@@ -22,16 +22,16 @@ const COMPANIES: SeedCompany[] = [
 ];
 
 const CUSTOMERS: SeedCustomer[] = [
-    { name: "Laxmi General Store", gstin: "29LGS1234L1Z1", address: "Market Yard, Bangalore", phone: "9000100010", placeOfSupply: "Karnataka", email: "laxmi@store.com", stateCode: "KA" },
-    { name: "Kisan Seva Kendra", gstin: "29KSK5678K1Z2", address: "Rural Rd, Mandya", phone: "9000200020", placeOfSupply: "Karnataka", email: "kisan@seva.com", stateCode: "KA" },
-    { name: "Annapurna Traders", gstin: "27ANA4321A1Z3", address: "Main Bazaar, Solapur", phone: "9000300030", placeOfSupply: "Maharashtra", email: "annapurna@traders.com", stateCode: "MH" },
-    { name: "Global Exports", gstin: "33GLE8765G1Z4", address: "Port Rd, Chennai", phone: "9000400040", placeOfSupply: "Tamil Nadu", email: "global@exports.com", stateCode: "TN" },
-    { name: "Vinayaka Agencies", gstin: "36VNA1122V1Z5", address: "Ring Road, Warangal", phone: "9000500050", placeOfSupply: "Telangana", email: "vinayaka@agencies.com", stateCode: "TS" },
-    { name: "Jai Hind Fertilizers", gstin: "24JHF3344J1Z6", address: "Station Rd, Surat", phone: "9000600060", placeOfSupply: "Gujarat", email: "jaihind@ferti.com", stateCode: "GJ" },
-    { name: "Ganga Farmers Club", gstin: "09GFC5566G1Z7", address: "River Bank, Varanasi", phone: "9000700070", placeOfSupply: "Uttar Pradesh", email: "ganga@club.com", stateCode: "UP" },
-    { name: "Punjab Wheats", gstin: "03PWH7788P1Z8", address: "GT Road, Amritsar", phone: "9000800080", placeOfSupply: "Punjab", email: "punjab@wheats.com", stateCode: "PB" },
-    { name: "Kerala Spices", gstin: "32KSP9900K1Z9", address: "Hill Top, Munnar", phone: "9000900090", placeOfSupply: "Kerala", email: "kerala@spices.com", stateCode: "KL" },
-    { name: "Eastern Traders", gstin: "19EST1234E1Z0", address: "New Market, Siliguri", phone: "9000011111", placeOfSupply: "West Bengal", email: "eastern@traders.com", stateCode: "WB" }
+    { name: "Laxmi General Store", gstin: "29LGS1234L1Z1", address: "Market Yard, Bangalore", phone: "9000100010", placeOfSupply: "Karnataka", email: "laxmi@store.com", stateCode: "KA", invoiceProductName: "HDPE GRANULES" },
+    { name: "Kisan Seva Kendra", gstin: "29KSK5678K1Z2", address: "Rural Rd, Mandya", phone: "9000200020", placeOfSupply: "Karnataka", email: "kisan@seva.com", stateCode: "KA", invoiceProductName: "LDPE PELLETS" },
+    { name: "Annapurna Traders", gstin: "27ANA4321A1Z3", address: "Main Bazaar, Solapur", phone: "9000300030", placeOfSupply: "Maharashtra", email: "annapurna@traders.com", stateCode: "MH", invoiceProductName: "PP REPRO GRANULES" },
+    { name: "Global Exports", gstin: "33GLE8765G1Z4", address: "Port Rd, Chennai", phone: "9000400040", placeOfSupply: "Tamil Nadu", email: "global@exports.com", stateCode: "TN", invoiceProductName: "LLDPE MASTERBATCH" },
+    { name: "Vinayaka Agencies", gstin: "36VNA1122V1Z5", address: "Ring Road, Warangal", phone: "9000500050", placeOfSupply: "Telangana", email: "vinayaka@agencies.com", stateCode: "TS", invoiceProductName: "PVC RESIN" },
+    { name: "Jai Hind Fertilizers", gstin: "24JHF3344J1Z6", address: "Station Rd, Surat", phone: "9000600060", placeOfSupply: "Gujarat", email: "jaihind@ferti.com", stateCode: "GJ", invoiceProductName: "NYLON CHIPS" },
+    { name: "Ganga Farmers Club", gstin: "09GFC5566G1Z7", address: "River Bank, Varanasi", phone: "9000700070", placeOfSupply: "Uttar Pradesh", email: "ganga@club.com", stateCode: "UP", invoiceProductName: "ABS PELLETS" },
+    { name: "Punjab Wheats", gstin: "03PWH7788P1Z8", address: "GT Road, Amritsar", phone: "9000800080", placeOfSupply: "Punjab", email: "punjab@wheats.com", stateCode: "PB", invoiceProductName: "HIPS GRANULES" },
+    { name: "Kerala Spices", gstin: "32KSP9900K1Z9", address: "Hill Top, Munnar", phone: "9000900090", placeOfSupply: "Kerala", email: "kerala@spices.com", stateCode: "KL", invoiceProductName: "PET FLAKES" },
+    { name: "Eastern Traders", gstin: "19EST1234E1Z0", address: "New Market, Siliguri", phone: "9000011111", placeOfSupply: "West Bengal", email: "eastern@traders.com", stateCode: "WB", invoiceProductName: "PC GRANULES" }
 ];
 
 const PRODUCTS = [
@@ -154,7 +154,7 @@ export const seedDemoData = async () => {
                     quantity,
                     unitPrice,
                     taxRate,
-                    totalAmount: amount + taxAmount,
+                    totalAmount: amount, // Logic Change (v4-calc): Use Subtotal only
                     taxAmount,
                     numberOfBags: bags,
                     producerName: producer.name,
@@ -163,6 +163,23 @@ export const seedDemoData = async () => {
             }
 
             const grandTotal = subTotal + totalTax;
+
+            // v4: Generate Summary Item for Seeding
+            const first = items[0];
+            const sumBags = items.reduce((s, i) => s + (Number(i.numberOfBags)||0), 0);
+            const sumQty = items.reduce((s, i) => s + (Number(i.quantity)||0), 0);
+
+            const summaryItem = {
+                description: first.description,
+                hsn: first.hsn,
+                unitPrice: first.unitPrice,
+                taxRate: first.taxRate,
+                numberOfBags: sumBags,
+                quantity: sumQty,
+                taxAmount: totalTax,
+                totalAmount: subTotal,
+                invoiceProductName: cust.invoiceProductName || 'PLASTIC REPROCESS GRANULES'
+            };
 
             // Remove stateCode for DB object
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -183,7 +200,8 @@ export const seedDemoData = async () => {
                 buyerDetails: dbCust,
                 referenceNumber: invoiceNumber,
                 createdAt: invDate,
-                taxType // Populated
+                taxType, // Populated
+                summaryItem // Added (v4)
             };
 
             const invId = await db.invoices.add({

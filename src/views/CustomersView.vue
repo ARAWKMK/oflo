@@ -10,7 +10,8 @@ const showModal = ref(false);
 const isEditing = ref(false);
 const formData = ref<Partial<Customer>>({
     name: '', gstin: '', address: '', phone: '', email: '',
-    deliveryAddresses: [], enableDelivery: false
+    deliveryAddresses: [], enableDelivery: false,
+    invoiceProductName: ''
 });
 const customers = ref<Customer[]>([]);
 
@@ -23,7 +24,8 @@ onMounted(refresh);
 const openNew = () => {
     formData.value = { 
         name: '', gstin: '', address: '', phone: '', email: '',
-        deliveryAddresses: [], enableDelivery: false 
+        deliveryAddresses: [], enableDelivery: false,
+        invoiceProductName: ''
     };
     isEditing.value = false;
     showModal.value = true;
@@ -159,6 +161,7 @@ const save = async () => {
                         <BaseInput label="GSTIN" v-model="formData.gstin!" />
                         <BaseInput label="Phone" v-model="formData.phone!" />
                         <BaseInput label="Email" v-model="formData.email!" />
+                        <BaseInput label="Invoice Product Name" v-model="formData.invoiceProductName!" placeholder="e.g. HDPE GRANULES" />
                     </div>
                 </div>
 
