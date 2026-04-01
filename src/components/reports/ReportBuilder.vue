@@ -142,6 +142,7 @@ onMounted(() => {
                     <option value="product">Product</option>
                     <option value="producer">Producer</option>
                     <option value="seller">Company</option>
+                    <option value="alias">Alias</option>
                 </select>
             </div>
 
@@ -162,6 +163,7 @@ onMounted(() => {
                     <option value="product">Product</option>
                     <option value="producer">Producer</option>
                     <option value="seller">Company</option>
+                    <option value="alias">Alias</option>
                 </select>
             </div>
 

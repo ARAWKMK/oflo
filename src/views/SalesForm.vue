@@ -42,7 +42,11 @@ const isLoading = ref(true);
 // Computed Helpers
 const isEditMode = computed(() => !!state.id);
 const customerOptions = computed(() => customers.value?.map(c => ({ id: c.id!, name: c.name })) || []);
-const companyOptions = computed(() => companies.value?.map(c => ({ id: c.id!, name: c.name })) || []);
+const companyOptions = computed(() => companies.value?.map(c => ({ 
+    id: c.id!, 
+    name: c.name,
+    alias: c.alias || c.name 
+})) || []);
 const productOptions = computed(() => products.value?.map(p => ({ id: p.id!, name: p.name })) || []);
 
 const selectedCompany = computed(() => companies.value?.find(c => c.id === state.companyId));
@@ -134,7 +138,8 @@ onMounted(async () => {
                     taxAmount: i.taxAmount,
                     totalAmount: (i.quantity * i.unitPrice).toFixed(2),
                     producerId: i.producerId,
-                    producerName: i.producerName
+                    producerName: i.producerName,
+                    producerAlias: i.producerAlias
                 }));
 
                 if (ver.summaryItem) {
@@ -152,12 +157,11 @@ onMounted(async () => {
     setTimeout(() => isLoading.value = false, 100);
 });
 
-// Actions
 const addItem = () => {
     state.items.push({
         productId: 0, description: '', name: '', hsn: '',
         numberOfBags: 0, quantity: 0, unitPrice: 0, taxRate: 18,
-        taxAmount: 0, totalAmount: 0, producerId: ''
+        taxAmount: 0, totalAmount: 0, producerId: '', producerAlias: '', producerName: ''
     });
 };
 
@@ -175,6 +179,19 @@ const onProductSelect = (row: any, prodId: any) => {
         row.taxRate = p.taxRate;
         row.hsn = p.hsn;
         calculateRow(row);
+    }
+};
+
+const onProducerSelect = (row: any, compId: any) => {
+    const c = companies.value?.find(x => x.id === Number(compId));
+    if (c) {
+        row.producerId = c.id;
+        row.producerName = c.name;
+        row.producerAlias = c.alias || c.name;
+    } else {
+        row.producerId = undefined;
+        row.producerName = '';
+        row.producerAlias = '';
     }
 };
 
@@ -294,7 +311,8 @@ const save = async () => {
             taxAmount: Number(((Number(i.quantity) * Number(i.unitPrice)) * (Number(i.taxRate) / 100)).toFixed(2)),
             totalAmount: Number(((Number(i.quantity) * Number(i.unitPrice)) * (1 + Number(i.taxRate) / 100)).toFixed(2)),
             producerId: i.producerId ? Number(i.producerId) : undefined,
-            producerName: i.producerId ? (companies.value?.find(c => c.id === Number(i.producerId))?.name) : undefined
+            producerName: i.producerName,
+            producerAlias: i.producerAlias
         }));
 
         await db.transaction('rw', db.invoices, db.invoiceVersions, async () => {
@@ -394,9 +412,12 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
             <div class="row-company-select">
                 <select v-model="state.companyId" class="input-glass select-company" :disabled="isEditMode">
                     <option value="" disabled>Select Company</option>
-                    <option v-for="c in companyOptions" :value="c.id">{{ c.name }}</option>
+                    <option v-for="c in companyOptions" :value="c.id">{{ c.alias || c.name }}</option>
                 </select>
                 <div v-if="isEditMode" class="text-xs text-sec mt-1">(Company locked in Edit Mode)</div>
+                <div v-if="selectedCompany" class="selected-alias-info">
+                    <span class="label">Official Name:</span> {{ selectedCompany.name }}
+                </div>
             </div>
 
             <template v-if="selectedCompany">
@@ -496,9 +517,10 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
                 <table class="premium-table">
                     <thead>
                         <tr>
-                            <th style="width: 14%">Producer</th>
-                            <th style="width: 18%">Product</th>
-                            <th style="width: 19%">Description</th>
+                            <th style="width: 13%">Prod. Alias</th>
+                            <th style="width: 13%">Producer</th>
+                            <th style="width: 14%">Product</th>
+                            <th style="width: 14%">Description</th>
                             <th style="width: 8%; text-align: center;">HSN</th>
                             <th style="width: 8%; text-align: right;">Bags</th>
                             <th style="width: 10%; text-align: right;">Qty</th>
@@ -511,10 +533,13 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
                     <tbody>
                         <tr v-for="(item, idx) in state.items" :key="idx">
                             <td>
-                                <select v-model="item.producerId" class="input-table">
-                                    <option value="" disabled>Producer</option>
-                                    <option v-for="c in companyOptions" :value="c.id">{{ c.name }}</option>
+                                <select v-model="item.producerId" @change="onProducerSelect(item, item.producerId)" class="input-table">
+                                    <option value="" disabled>Alias</option>
+                                    <option v-for="c in companyOptions" :value="c.id">{{ c.alias || c.name }}</option>
                                 </select>
+                            </td>
+                            <td>
+                                <input :value="item.producerName" readonly class="input-table readonly-input" placeholder="Producer" />
                             </td>
                             <td>
                                 <select v-model="item.productId" @change="onProductSelect(item, item.productId)" class="input-table">

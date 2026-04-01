@@ -22,7 +22,7 @@ onMounted(refresh);
 const openNew = () => {
     formData.value = { 
         invoicePrefix: 'INV', 
-        name: '', gstin: '', address: '', phone: '', email: '',
+        name: '', alias: '', gstin: '', address: '', phone: '', email: '',
         tagline: '', bankName: '', accountNumber: '', ifscCode: ''
     };
     isEditing.value = false;
@@ -87,7 +87,10 @@ const save = async () => {
     <div class="grid">
         <div v-for="c in companies" :key="c.id" class="company-card card">
             <div class="card-header">
-                <h4 class="text-white">{{ c.name }}</h4>
+                <div class="header-main">
+                    <h4 class="text-white">{{ c.alias || c.name }}</h4>
+                    <span v-if="c.alias && c.alias !== c.name" class="official-name">{{ c.name }}</span>
+                </div>
                 <div class="actions">
                     <button @click="edit(c)" class="btn-icon"><Pencil :size="16"/></button>
                     <button @click="confirmDelete(c.id)" class="btn-icon text-red"><Trash2 :size="16"/></button>
@@ -138,7 +141,8 @@ const save = async () => {
         <div class="modal card">
             <h3>{{ isEditing ? 'Edit' : 'New' }} Company</h3>
             <div class="form-grid">
-                <BaseInput label="Company Name" v-model="formData.name!" placeholder="Acme Corp" />
+                <BaseInput label="Company Name (Official)" v-model="formData.name!" placeholder="Acme Corp Pvt Ltd" />
+                <BaseInput label="Company Alias (Nick Name)" v-model="formData.alias!" placeholder="Acme" />
                 <BaseInput label="Tagline" v-model="formData.tagline!" placeholder="Solutions for you" />
                 <BaseInput label="GSTIN" v-model="formData.gstin!" placeholder="29ABCDE1234F1Z5" />
                 <BaseInput label="Invoice Prefix" v-model="formData.invoicePrefix!" placeholder="INV" />
@@ -196,8 +200,10 @@ const save = async () => {
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; }
 .company-card { position: relative; display: flex; flex-direction: column; gap: 0.5rem; min-height: 280px; }
-.card-header { margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; }
-.card-header h4 { font-size: 1.1rem; font-weight: 600; }
+.card-header { margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: flex-start; }
+.header-main { display: flex; flex-direction: column; gap: 2px; }
+.card-header h4 { font-size: 1.1rem; font-weight: 600; line-height: 1.2; }
+.official-name { font-size: 0.75rem; color: var(--color-fg-secondary); font-style: italic; }
 
 .tagline { color: var(--color-fg-muted); font-style: italic; font-size: 0.8rem; margin-bottom: 0.5rem; }
 .details { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; }

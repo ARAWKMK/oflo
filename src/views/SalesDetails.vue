@@ -4,9 +4,13 @@ import { useRoute, useRouter } from 'vue-router';
 import { db, type Invoice, type InvoiceVersion } from '../db/db';
 import PageHeader from '../components/ui/PageHeader.vue';
 import BaseButton from '../components/ui/BaseButton.vue';
-import { Clock, Edit, CheckCircle, Printer, Download, Truck, FileText, ChevronDown } from 'lucide-vue-next';
+import { Clock, Edit, CheckCircle, Printer, Download, Truck, FileText, ChevronDown, Plus, Minus, Settings } from 'lucide-vue-next';
 import { numberToWords } from '../utils/formatters';
-import { downloadInvoicePDF, printInvoicePDF, downloadChallanPDF, printChallanPDF } from '../services/pdfService';
+import { 
+    downloadInvoicePDF, printInvoicePDF, 
+    downloadChallanPDF, printChallanPDF,
+    downloadCustomPDF, printCustomPDF 
+} from '../services/pdfService';
 
 
 // Router
@@ -179,9 +183,24 @@ const goToEdit = () => {
 
 const showPrintMenu = ref(false);
 const showDownloadMenu = ref(false);
+const showCustomMenu = ref(false);
 
-const togglePrintMenu = () => { showPrintMenu.value = !showPrintMenu.value; showDownloadMenu.value = false; };
-const toggleDownloadMenu = () => { showDownloadMenu.value = !showDownloadMenu.value; showPrintMenu.value = false; };
+const customCounts = ref({
+    invoice: 1,
+    ext: 1,
+    int: 1
+});
+
+const togglePrintMenu = () => { showPrintMenu.value = !showPrintMenu.value; showDownloadMenu.value = false; showCustomMenu.value = false; };
+const toggleDownloadMenu = () => { showDownloadMenu.value = !showDownloadMenu.value; showPrintMenu.value = false; showCustomMenu.value = false; };
+const toggleCustomMenu = () => { showCustomMenu.value = !showCustomMenu.value; showPrintMenu.value = false; showDownloadMenu.value = false; };
+
+const adjustCount = (type: keyof typeof customCounts.value, delta: number) => {
+    const newVal = customCounts.value[type] + delta;
+    if (newVal >= 0 && newVal <= 9) {
+        customCounts.value[type] = newVal;
+    }
+};
 
 const handlePrintAction = (type: 'invoice' | 'ext' | 'int') => {
     showPrintMenu.value = false;
@@ -199,6 +218,15 @@ const handleDownloadAction = (type: 'invoice' | 'ext' | 'int') => {
     
     if (type === 'invoice') downloadInvoicePDF(data);
     else downloadChallanPDF(data, type === 'ext' ? 'External' : 'Internal');
+};
+
+const handleCustomAction = (action: 'print' | 'download') => {
+    showCustomMenu.value = false;
+    if (!currentVersion.value) return;
+    const data = { ...currentVersion.value, invoiceNumber: invoice.value?.invoiceNumber };
+    
+    if (action === 'print') printCustomPDF(data, { ...customCounts.value });
+    else downloadCustomPDF(data, { ...customCounts.value });
 };
 
 
@@ -223,6 +251,52 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
         </template>
         <template #actions>
             <div class="actions-group">
+                <!-- Custom Combined Group -->
+                <div class="dropdown-wrapper">
+                    <button @click="toggleCustomMenu" class="btn btn-secondary btn-icon-only-mobile" title="Custom Combined PDF">
+                        <Settings :size="18" />
+                        <span class="btn-text">Custom</span>
+                        <ChevronDown :size="14" style="margin-left: 4px; opacity: 0.7;" />
+                    </button>
+                    <div v-if="showCustomMenu" class="dropdown-menu custom-pdf-menu">
+                        <div class="custom-row">
+                            <div class="row-label"><FileText :size="16" /> Invoice</div>
+                            <div class="row-controls">
+                                <button @click="adjustCount('invoice', -1)" class="count-btn"><Minus :size="14" /></button>
+                                <span class="count-val">{{ customCounts.invoice }}</span>
+                                <button @click="adjustCount('invoice', 1)" class="count-btn"><Plus :size="14" /></button>
+                            </div>
+                        </div>
+                        <div class="custom-row">
+                            <div class="row-label"><Truck :size="16" /> Delivery Challan</div>
+                            <div class="row-controls">
+                                <button @click="adjustCount('ext', -1)" class="count-btn"><Minus :size="14" /></button>
+                                <span class="count-val">{{ customCounts.ext }}</span>
+                                <button @click="adjustCount('ext', 1)" class="count-btn"><Plus :size="14" /></button>
+                            </div>
+                        </div>
+                        <div class="custom-row">
+                            <div class="row-label"><FileText :size="16" /> Self Challan</div>
+                            <div class="row-controls">
+                                <button @click="adjustCount('int', -1)" class="count-btn"><Minus :size="14" /></button>
+                                <span class="count-val">{{ customCounts.int }}</span>
+                                <button @click="adjustCount('int', 1)" class="count-btn"><Plus :size="14" /></button>
+                            </div>
+                        </div>
+                        <div class="menu-divider"></div>
+                        <div class="custom-actions">
+                            <button @click="handleCustomAction('print')" class="mini-action-btn">
+                                <Printer :size="16" /> Print
+                            </button>
+                            <button @click="handleCustomAction('download')" class="mini-action-btn">
+                                <Download :size="16" /> Download
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider-vertical"></div>
+
                 <!-- Print/Download Group -->
                     <!-- Print Dropdown -->
                     <div class="dropdown-wrapper">
@@ -236,10 +310,10 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                                 <FileText :size="16" /> Invoice
                             </button>
                             <button @click="handlePrintAction('ext')" class="dropdown-item">
-                                <Truck :size="16" /> Ext. Challan
+                                <Truck :size="16" /> Delivery Challan
                             </button>
                             <button @click="handlePrintAction('int')" class="dropdown-item">
-                                <FileText :size="16" /> Int. Challan
+                                <FileText :size="16" /> Self Challan
                             </button>
                         </div>
                     </div>
@@ -256,10 +330,10 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                                 <FileText :size="16" /> Invoice
                             </button>
                             <button @click="handleDownloadAction('ext')" class="dropdown-item">
-                                <Truck :size="16" /> Ext. Challan
+                                <Truck :size="16" /> Delivery Challan
                             </button>
                             <button @click="handleDownloadAction('int')" class="dropdown-item">
-                                <FileText :size="16" /> Int. Challan
+                                <FileText :size="16" /> Self Challan
                             </button>
                         </div>
                     </div>
@@ -326,7 +400,10 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
 
                         <!-- Line 1: Company Name (Center) -->
                         <div class="row-company-name" style="margin-top: 1rem;">
-                            {{ currentVersion.sellerDetails?.name }}
+                            {{ currentVersion.sellerDetails?.alias || currentVersion.sellerDetails?.name }}
+                            <div v-if="currentVersion.sellerDetails?.alias && currentVersion.sellerDetails?.alias !== currentVersion.sellerDetails?.name" class="row-tagline" style="font-size: 0.9rem; opacity: 0.7;">
+                                {{ currentVersion.sellerDetails?.name }}
+                            </div>
                         </div>
 
                         <!-- Line 2: Tagline (Center) -->
@@ -379,19 +456,21 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                             <table class="compact-table">
                                 <thead>
                                     <tr>
-                                        <th style="width: 15%">Producer</th>
-                                        <th style="width: 20%">Product</th>
-                                        <th style="width: 20%">Description</th>
+                                        <th style="width: 13%">Alias</th>
+                                        <th style="width: 13%">Producer</th>
+                                        <th style="width: 14%">Product</th>
+                                        <th style="width: 14%">Description</th>
                                         <th style="width: 8%">HSN</th>
                                         <th style="width: 6%">Bags</th>
                                         <th style="width: 8%">Qty</th>
-                                        <th style="width: 10%">Price</th>
-                                        <th style="width: 6%">Tax %</th>
+                                        <th style="width: 9%">Price</th>
+                                        <th style="width: 5%">Tax %</th>
                                         <th style="width: 10%">Taxable</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="(item, idx) in currentVersion.items" :key="idx">
+                                        <td>{{ item.producerAlias || (item.producerName || '---') }}</td>
                                         <td>{{ item.producerName || '---' }}</td>
                                         <td>{{ item.name }}</td>
                                         <td>{{ item.description }}</td>
@@ -538,6 +617,86 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
 .badge-current { font-size: 0.65rem; background: var(--color-primary); color: #000; padding: 0.1rem 0.4rem; border-radius: 4px; font-weight: 700; }
 .v-date { font-size: 0.75rem; color: var(--color-fg-secondary); }
 .v-total { font-size: 0.8rem; font-weight: 500; color: var(--color-fg-primary); margin-top: 0.2rem; }
+
+/* Custom PDF Menu Styles */
+.custom-pdf-menu {
+    min-width: 240px;
+    padding: 0.75rem;
+}
+.custom-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    gap: 1rem;
+}
+.row-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--color-fg-primary);
+}
+.row-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--color-bg-app);
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+}
+.count-btn {
+    background: transparent;
+    border: none;
+    color: var(--color-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+.count-btn:hover {
+    background: rgba(var(--color-primary-rgb), 0.1);
+}
+.count-val {
+    font-size: 0.9rem;
+    font-weight: 600;
+    min-width: 1rem;
+    text-align: center;
+}
+.menu-divider {
+    height: 1px;
+    background: var(--color-border);
+    margin: 0.75rem 0;
+}
+.custom-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+.mini-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    background: var(--color-bg-muted);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-fg-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.mini-action-btn:hover {
+    background: var(--color-primary);
+    color: #000;
+    border-color: var(--color-primary);
+}
 
 /* Main Content */
 .invoice-content { flex: 1; display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; }

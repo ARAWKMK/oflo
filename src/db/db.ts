@@ -13,6 +13,7 @@ export interface Company {
     accountNumber?: string;
     ifscCode?: string;
     terms?: string;
+    alias?: string;
 }
 
 export interface Customer {
@@ -55,6 +56,7 @@ export interface InvoiceItem {
     // v3
     producerId?: number;
     producerName?: string; // Snapshot
+    producerAlias?: string; // v5 Snapshot
     // Calculated
     taxAmount: number;
     totalAmount: number;
@@ -130,6 +132,30 @@ export class OfloDB extends Dexie {
 
     constructor() {
         super('OfloDB');
+
+        // Define Version 7 (v5: Company Alias)
+        this.version(7).stores({
+            companies: '++id, name, alias, gstin',
+            customers: '++id, name, gstin',
+            products: '++id, name, sku',
+            invoices: '++id, invoiceNumber, currentVersionId, customerId, date, status',
+            invoiceVersions: '++id, invoiceId, version, date',
+            settings: 'key',
+            fonts: '++id, name'
+        }).upgrade(async tx => {
+            // Migration v7: Initialize alias for companies
+            await tx.table('companies').toCollection().modify(c => {
+                if (!c.alias) c.alias = c.name;
+            });
+            // Migration v7: Initialize producerAlias for all invoice versions
+            await tx.table('invoiceVersions').toCollection().modify((v: InvoiceVersion) => {
+                if (v.items) {
+                    v.items.forEach(item => {
+                        if (!item.producerAlias) item.producerAlias = item.producerName || '';
+                    });
+                }
+            });
+        });
 
         // Define Version 6 (v4: Dynamic Product Name)
         this.version(6).stores({

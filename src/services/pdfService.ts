@@ -46,9 +46,10 @@ const getPageFormat = (size: string) => {
     }
 };
 
-export const generateInvoicePDF = (data: any, settings: any) => {
+const setupDoc = (settings: any, type: 'invoice' | 'challan') => {
+    const format = getPageFormat(type === 'invoice' ? settings.pageSizeInvoice : settings.pageSizeChallan);
     const doc = new jsPDF({
-        format: getPageFormat(settings.pageSizeInvoice),
+        format,
         unit: 'mm',
         compress: settings.quality === 'standard'
     });
@@ -68,6 +69,10 @@ export const generateInvoicePDF = (data: any, settings: any) => {
         });
     }
 
+    return doc;
+};
+
+const drawInvoicePage = (doc: any, data: any, settings: any) => {
     const setFont = (type: 'company' | 'body', style: 'normal' | 'bold' | 'italic') => {
         const fontName = type === 'company' ? settings.fontCompany : settings.fontBody;
         doc.setFont(fontName, style);
@@ -670,28 +675,13 @@ export const generateInvoicePDF = (data: any, settings: any) => {
     return doc;
 };
 
-// --- CHALLAN GENERATION (Refactored) ---
-export const generateChallanPDF = (data: any, settings: any, type: 'Internal' | 'External') => {
-    const doc = new jsPDF({
-        format: getPageFormat(settings.pageSizeChallan),
-        unit: 'mm',
-        compress: settings.quality === 'standard'
-    });
+export const generateInvoicePDF = (data: any, settings: any) => {
+    const doc = setupDoc(settings, 'invoice');
+    drawInvoicePage(doc, data, settings);
+    return doc;
+};
 
-    if (settings.customFonts && settings.customFonts.length > 0) {
-        settings.customFonts.forEach((font: any) => {
-            try {
-                const filename = `${font.name}.ttf`;
-                doc.addFileToVFS(filename, font.data);
-                doc.addFont(filename, font.name, 'normal');
-                doc.addFont(filename, font.name, 'bold');
-                doc.addFont(filename, font.name, 'italic');
-            } catch (e) {
-                console.error('Failed to load font:', font.name, e);
-            }
-        });
-    }
-
+const drawChallanPage = (doc: any, data: any, settings: any, type: 'Internal' | 'External') => {
     const setFont = (t: 'company' | 'body', style: 'normal' | 'bold' | 'italic') => {
         const fontName = t === 'company' ? settings.fontCompany : settings.fontBody;
         doc.setFont(fontName, style);
@@ -711,7 +701,8 @@ export const generateChallanPDF = (data: any, settings: any, type: 'Internal' | 
     const headerH = settings.header * ptToMm;
     doc.setFontSize(settings.header);
     setFont('body', 'bold');
-    doc.text('DELIVERY CHALLAN', pageWidth / 2, currentY + headerH, { align: 'center' });
+    const headerText = type === 'Internal' ? 'SELF CHALLAN' : 'DELIVERY CHALLAN';
+    doc.text(headerText, pageWidth / 2, currentY + headerH, { align: 'center' });
     currentY += headerH + 2;
 
     const companyH = settings.company * ptToMm;
@@ -1135,9 +1126,46 @@ export const generateChallanPDF = (data: any, settings: any, type: 'Internal' | 
     return doc;
 };
 
+export const generateChallanPDF = (data: any, settings: any, type: 'Internal' | 'External') => {
+    const doc = setupDoc(settings, 'challan');
+    drawChallanPage(doc, data, settings, type);
+    return doc;
+};
 
+export const generateCustomPDF = (data: any, counts: any, settings: any) => {
+    // Custom doc setup: we use settings.pageSizeInvoice as the default base
+    const doc = setupDoc(settings, 'invoice');
+    let firstPage = true;
 
+    // 1. Invoices
+    for (let i = 0; i < (counts.invoice || 0); i++) {
+        if (!firstPage) {
+            doc.addPage(getPageFormat(settings.pageSizeInvoice));
+        }
+        drawInvoicePage(doc, data, settings);
+        firstPage = false;
+    }
 
+    // 2. Delivery Challans
+    for (let i = 0; i < (counts.ext || 0); i++) {
+        if (!firstPage) {
+            doc.addPage(getPageFormat(settings.pageSizeChallan));
+        }
+        drawChallanPage(doc, data, settings, 'External');
+        firstPage = false;
+    }
+
+    // 3. Self Challans
+    for (let i = 0; i < (counts.int || 0) ; i++) {
+        if (!firstPage) {
+            doc.addPage(getPageFormat(settings.pageSizeChallan));
+        }
+        drawChallanPage(doc, data, settings, 'Internal');
+        firstPage = false;
+    }
+
+    return doc;
+};
 export const downloadInvoicePDF = async (invoiceData: any) => {
     const settings = await getPDFSettings();
     const doc = generateInvoicePDF(invoiceData, settings);
@@ -1156,12 +1184,29 @@ export const printInvoicePDF = async (invoiceData: any) => {
 export const downloadChallanPDF = async (data: any, type: 'Internal' | 'External') => {
     const settings = await getPDFSettings();
     const doc = generateChallanPDF(data, settings, type);
-    doc.save(`${type}_Challan_${data.invoiceNumber}.pdf`);
+    const prefix = type === 'Internal' ? 'Self' : 'Delivery';
+    doc.save(`${prefix}_Challan_${data.invoiceNumber}.pdf`);
 };
 
 export const printChallanPDF = async (data: any, type: 'Internal' | 'External') => {
     const settings = await getPDFSettings();
     const doc = generateChallanPDF(data, settings, type);
     doc.autoPrint();
-    window.open(doc.output('bloburl'), '_blank');
+    const blob = doc.output('bloburl');
+    window.open(blob, '_blank');
+};
+
+export const downloadCustomPDF = async (data: any, counts: any) => {
+    const settings = await getPDFSettings();
+    const doc = generateCustomPDF(data, counts, settings);
+    const fileName = `Custom_${data.referenceNumber || data.invoiceNumber}.pdf`;
+    doc.save(fileName);
+};
+
+export const printCustomPDF = async (data: any, counts: any) => {
+    const settings = await getPDFSettings();
+    const doc = generateCustomPDF(data, counts, settings);
+    doc.autoPrint();
+    const blob = doc.output('bloburl');
+    window.open(blob, '_blank');
 };

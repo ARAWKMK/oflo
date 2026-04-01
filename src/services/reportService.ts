@@ -1,6 +1,6 @@
 import { db, type Invoice, type InvoiceVersion, type InvoiceItem } from '../db/db';
 
-export type GroupOption = 'day' | 'week' | 'month' | 'financialYear' | 'invoice' | 'customer' | 'seller' | 'product' | 'producer';
+export type GroupOption = 'day' | 'week' | 'month' | 'financialYear' | 'invoice' | 'customer' | 'seller' | 'product' | 'producer' | 'alias';
 export type MetricOption = 'totalAmount' | 'totalBags' | 'totalTax' | 'count' | 'quantity' | 'taxableValue';
 
 export interface ReportFilter {
@@ -116,6 +116,7 @@ export const generateAdvancedReport = async (
         if (dim === 'seller') return ver.sellerDetails.name;
         if (dim === 'product' && item) return item.name;
         if (dim === 'producer' && item) return item.producerName || 'Unknown';
+        if (dim === 'alias' && item) return item.producerAlias || item.producerName || 'Unknown';
         return 'Total';
     };
 
@@ -131,8 +132,8 @@ export const generateAdvancedReport = async (
 
     // 3. Iterate
     processed.forEach(({ inv, ver, items }) => {
-        const isItemLevelX = options.xAxis === 'product' || options.xAxis === 'producer';
-        const isItemLevelCompare = options.compareBy === 'product' || options.compareBy === 'producer';
+        const isItemLevelX = options.xAxis === 'product' || options.xAxis === 'producer' || options.xAxis === 'alias';
+        const isItemLevelCompare = options.compareBy === 'product' || options.compareBy === 'producer' || options.compareBy === 'alias';
 
         if (isItemLevelX || isItemLevelCompare) {
             items.forEach(item => {
