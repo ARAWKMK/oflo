@@ -944,7 +944,48 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
         background-color: var(--color-bg-card);
         border-radius: 8px; /* Softer corners */
     } 
-    .actions-group { gap: 1.5rem; width: 100%; justify-content: center; margin-bottom: 0.5rem; } 
+    .actions-group { 
+        gap: 1.5rem; 
+        width: 100%; 
+        justify-content: center; 
+        margin-bottom: 0.5rem; 
+        position: relative; /* Positioning root for full-width breakout */
+    } 
+    .dropdown-wrapper { 
+        position: static !important; /* Allow menu to break out to screen edges */
+    }
+    .dropdown-menu {
+        width: max-content;
+        min-width: 200px;
+        max-width: calc(100vw - 16px);
+        left: auto;
+        right: auto;
+        transform: none !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+    
+    /* Absolute Screen-Edge Breakout (Left Snap) */
+    .dropdown-wrapper:nth-child(1) .dropdown-menu,
+    .dropdown-wrapper:nth-child(3) .dropdown-menu {
+        left: 0 !important;
+        right: auto !important;
+        margin-left: -1rem !important; /* Break past header padding to the screen edge */
+        border-top-left-radius: 0; /* UX touch: sharp corner at screen start */
+    }
+    
+    /* Absolute Screen-Edge Breakout (Right Snap) */
+    .dropdown-wrapper:nth-child(4) .dropdown-menu,
+    .dropdown-wrapper:last-child .dropdown-menu {
+        right: 0 !important;
+        left: auto !important;
+        margin-right: -1rem !important; /* Break past header padding to the screen edge */
+        border-top-right-radius: 0; /* UX touch: sharp corner at screen end */
+    }
+
+    .custom-pdf-menu {
+        padding: 0.75rem; 
+        min-width: 240px; /* Slightly wider for controls */
+    }
     .divider-vertical { display: none; } /* Hide divider on mobile for cleaner look */
     
     .btn-group {

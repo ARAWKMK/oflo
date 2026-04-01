@@ -8,6 +8,7 @@ import { ref, toRaw, computed } from 'vue';
 const showRestoreModal = ref(false);
 const restoreData = ref<any>(null); // Holds { meta, data }
 const restoreSource = ref<'v1' | 'v2'>('v2');
+const shouldClear = ref(false); // Toggle for "Wipe & Restore"
 
 // Selection State
 const selection = ref({
@@ -27,8 +28,8 @@ const getCount = (key: string) => {
 };
 
 // Current App Version for Metadata
-const APP_VERSION = '1.0.0';
-const SCHEMA_VERSION = 5;
+const APP_VERSION = '5.1.0-v5'; // Matching the Oflo V5 Release
+const SCHEMA_VERSION = 7; // Current IndexDB v7
 
 const backup = async () => {
     try {
@@ -124,13 +125,40 @@ const confirmRestore = async () => {
             db.settings, db.invoices, db.invoiceVersions, db.fonts
         ], async () => {
             
-            // 1. Profiles
+            // --- STEP 1: CLEAR EXISTING (IF REQUESTED) ---
+            if (shouldClear.value) {
+                if (selection.value.companies) await db.companies.clear();
+                if (selection.value.customers) await db.customers.clear();
+                if (selection.value.products) await db.products.clear();
+                if (selection.value.settings) await db.settings.clear();
+                if (selection.value.fonts) await db.fonts.clear();
+                if (selection.value.invoices) {
+                    await db.invoices.clear();
+                    await db.invoiceVersions.clear();
+                }
+            }
+
+            // --- STEP 2: RESTORE DATA ---
+            
+            // 1. Profiles (With v5/v7 Backfills/Sanitization)
             if (selection.value.companies && rawData.companies?.length) {
-                await db.companies.bulkPut(rawData.companies);
+                const fixCompanies = (list: any[]) => list.map(c => ({
+                    ...c,
+                    alias: c.alias || c.name // v7 Compatibility
+                }));
+                await db.companies.bulkPut(fixCompanies(rawData.companies));
             }
+
             if (selection.value.customers && rawData.customers?.length) {
-                await db.customers.bulkPut(rawData.customers);
+                const fixCustomers = (list: any[]) => list.map(c => ({
+                    ...c,
+                    deliveryAddresses: c.deliveryAddresses || (c.deliveryAddress ? [c.deliveryAddress] : (c.address ? [c.address] : [])),
+                    enableDelivery: c.enableDelivery ?? false,
+                    invoiceProductName: c.invoiceProductName ?? ''
+                }));
+                await db.customers.bulkPut(fixCustomers(rawData.customers));
             }
+
             if (selection.value.products && rawData.products?.length) {
                 await db.products.bulkPut(rawData.products);
             }
@@ -143,21 +171,25 @@ const confirmRestore = async () => {
                  await db.fonts.bulkPut(rawData.fonts);
             }
 
-            // 3. Transactions (Invoices + Versions)
+            // 3. Transactions (Invoices + Versions with Date Re-hydration)
             if (selection.value.invoices && rawData.invoices?.length) {
                 // Fix Date Objects for Invoices
                 const fixInvoiceDates = (list: any[]) => list.map(item => ({
                     ...item,
                     date: new Date(item.date),
-                    status: item.status || 'final' // Backfill status
+                    status: item.status || 'final'
                 }));
 
-                // Fix Date Objects for Versions
+                // Fix Date Objects and Snapshots for Versions
                 const fixVersionDates = (list: any[]) => list.map(item => ({
                     ...item,
                     date: new Date(item.date),
                     createdAt: item.createdAt ? new Date(item.createdAt) : new Date(item.date),
-                    status: item.status || 'final'
+                    status: item.status || 'final',
+                    items: (item.items || []).map((i: any) => ({
+                        ...i,
+                        producerAlias: i.producerAlias || i.producerName || '' // v7 Compatibility
+                    }))
                 }));
 
                 await db.invoices.bulkPut(fixInvoiceDates(rawData.invoices));
@@ -279,6 +311,20 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
                 </label>
             </div>
 
+            <!-- Clear Data Toggle -->
+            <div class="clear-toggle-container">
+                <label class="toggle-row" :title="shouldClear ? 'This will DELETE ALL EXISTING DATA in selected categories before restoring!' : ''">
+                    <div class="toggle-info">
+                        <span class="toggle-title">Zero-Difference Restore</span>
+                        <span class="toggle-desc">Wipe existing data in selected categories before importing breakdown</span>
+                    </div>
+                    <input type="checkbox" v-model="shouldClear" class="switch">
+                </label>
+                <div v-if="shouldClear" class="warning-box">
+                    <span class="warning-text">⚠️ <b>Warning:</b> This will permanently delete your current records for the selected categories!</span>
+                </div>
+            </div>
+
             <div class="modal-actions">
                 <BaseButton variant="ghost" @click="showRestoreModal = false">Cancel</BaseButton>
                 <BaseButton @click="confirmRestore" class="btn-primary shadow-glow">
@@ -369,6 +415,8 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
     border-radius: var(--radius-lg);
     box-shadow: 0 25px 60px rgba(0,0,0,0.6);
     animation: scaleUp 0.2s ease-out;
+    display: flex; flex-direction: column;
+    max-height: 90vh; /* Ensure modal fits within viewport */
 }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -394,7 +442,7 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
 .modal-desc { padding: 1.5rem 1.5rem 0.5rem; font-size: 0.95rem; color: var(--color-fg-secondary); line-height: 1.5; }
 
 /* Selection List */
-.selection-list { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; max-height: 55vh; overflow-y: auto; }
+.selection-list { padding: 1rem 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; max-height: 35vh; overflow-y: auto; flex: 1 1 auto; }
 
 .checkbox-row { 
     display: flex; align-items: center; gap: 1rem; 
@@ -446,8 +494,91 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
 
 .modal-actions { 
     padding: 1.5rem; 
-    background: var(--color-bg-elevated); 
     border-top: 1px solid var(--color-border); 
     display: flex; justify-content: flex-end; gap: 1rem; 
+}
+
+/* Clear Toggle Styling */
+.clear-toggle-container {
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-app);
+}
+
+.toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.toggle-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.toggle-title {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: var(--color-primary);
+}
+
+.toggle-desc {
+    font-size: 0.75rem;
+    color: var(--color-fg-secondary);
+    opacity: 0.7;
+}
+
+.switch {
+    width: 2.5rem;
+    height: 1.25rem;
+    appearance: none;
+    background: var(--color-border);
+    border-radius: 99px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.switch:checked {
+    background: var(--color-primary);
+}
+
+.switch::before {
+    content: '';
+    position: absolute;
+    width: 1rem;
+    height: 1rem;
+    background: white;
+    border-radius: 50%;
+    top: 0.125rem;
+    left: 0.125rem;
+    transition: transform 0.3s;
+}
+
+.switch:checked::before {
+    transform: translateX(1.25rem);
+}
+
+.warning-box {
+    margin-top: 0.5rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    animation: slideDown 0.3s ease-out;
+}
+
+.warning-text {
+    font-size: 0.75rem;
+    color: #ef4444;
+    display: block;
+    line-height: 1.3;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 </style>
