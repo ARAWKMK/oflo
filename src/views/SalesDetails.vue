@@ -1011,6 +1011,86 @@ input:not(:checked) + .toggle-slider:before { background-color: #666; }
     padding: 0.25rem;
 }
 
+@media (max-width: 640px) {
+    .dropdown-menu {
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+    }
+}
+
+/* Custom PDF Menu Styles */
+.custom-pdf-menu {
+    min-width: 250px;
+    padding: 0.75rem;
+}
+.custom-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    gap: 1rem;
+}
+.row-label {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--color-fg-primary);
+}
+.row-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--color-bg-app);
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--color-border);
+}
+.count-btn {
+    background: none;
+    border: none;
+    color: var(--color-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+.count-btn:hover { background: rgba(0,0,0,0.1); }
+.count-val { font-weight: 700; min-width: 1.2rem; text-align: center; font-variant-numeric: tabular-nums; color: var(--color-fg-primary); }
+.menu-divider { height: 1px; background: var(--color-border); margin: 0.5rem 0; opacity: 0.5; }
+.custom-actions { display: flex; gap: 0.6rem; margin-top: 0.5rem; }
+.mini-action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.6rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    border-radius: 8px;
+    cursor: pointer;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    color: var(--color-fg-primary);
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+.mini-action-btn:hover { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-bg-muted); }
+
+@media (max-width: 480px) {
+    .custom-pdf-menu {
+        min-width: calc(100vw - 32px);
+        max-width: 340px;
+    }
+}
+
 .dropdown-item {
     display: flex;
     align-items: center;
