@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { db, type Company } from '../db/db';
 import { Plus, Pencil, Trash2 } from 'lucide-vue-next';
 import BaseButton from '../components/ui/BaseButton.vue';
@@ -34,6 +34,16 @@ const edit = (company: Company) => {
     isEditing.value = true;
     showModal.value = true;
 };
+
+// v5: Enforce Alphanumeric Prefix
+watch(() => formData.value.invoicePrefix, (newVal) => {
+    if (newVal) {
+        const cleaned = newVal.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        if (cleaned !== newVal) {
+            formData.value.invoicePrefix = cleaned;
+        }
+    }
+});
 
 
 const showDeleteConfirm = ref(false);

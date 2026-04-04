@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch, onMounted, ref } from 'vue';
 import { db, type InvoiceItem } from '../db/db';
+import { getNextMasterId } from '../services/sequenceService';
 import { useRouter, useRoute } from 'vue-router';
 import { Trash2, Plus, Save, ChevronDown } from 'lucide-vue-next';
 import BaseButton from '../components/ui/BaseButton.vue';
@@ -23,8 +24,7 @@ const state = reactive({
     id: undefined as number | undefined,
     companyId: '' as string | number,
     customerId: '' as string | number,
-    invoiceNumber: '',
-    referenceNumber: '',
+    salesNumber: '',
     date: new Date().toISOString().split('T')[0],
     vehicleNumber: '',
     deliveryAddress: '', 
@@ -83,25 +83,27 @@ watch(() => state.customerId, (newId) => {
 });
 
 // Smart Invoice Number
-watch(() => state.companyId, async (newId) => {
+const updateNumberPreview = async () => {
     if (isEditMode.value) return; 
-    if (newId) {
-        const id = Number(newId);
+    if (state.companyId) {
+        const id = Number(state.companyId);
         if (!isNaN(id)) {
-            state.invoiceNumber = await store.generateNextInvoiceNumber(id);
-            state.referenceNumber = `${state.invoiceNumber}-v1`;
+            state.salesNumber = await store.generateNextInvoiceNumber(id, new Date(state.date));
+            state.salesNumber = `${state.salesNumber}-v1`;
         }
     } else {
-        state.invoiceNumber = '';
-        state.referenceNumber = '';
+        state.salesNumber = '';
     }
-});
+};
+
+watch(() => state.companyId, updateNumberPreview);
+watch(() => state.date, updateNumberPreview);
 
 // Load Data
 onMounted(async () => {
     let invId: number | undefined = undefined;
     if (route.params.invoiceNo) {
-        const inv = await db.invoices.where('invoiceNumber').equals(route.params.invoiceNo as string).first();
+        const inv = await db.invoices.where('salesNumber').equals(route.params.invoiceNo as string).first();
         if (inv) invId = inv.id;
     } else if (route.params.id) {
         invId = Number(route.params.id);
@@ -112,7 +114,7 @@ onMounted(async () => {
         const inv = await db.invoices.get(invId);
         if (inv) {
             state.id = inv.id;
-            state.invoiceNumber = inv.invoiceNumber;
+            state.salesNumber = inv.salesNumber;
             
             let ver = undefined;
             if (verId) ver = await db.invoiceVersions.get(verId);
@@ -123,7 +125,7 @@ onMounted(async () => {
                 state.customerId = ver.buyerDetails.id!;
                 state.date = ver.date.toISOString().split('T')[0];
                 state.vehicleNumber = ver.vehicleNumber || '';
-                state.referenceNumber = ver.referenceNumber;
+                state.salesNumber = ver.salesNumber || '';
                 state.deliveryAddress = ver.buyerDetails.deliveryAddress || '';
                 
                 state.items = ver.items.map(i => ({
@@ -315,20 +317,29 @@ const save = async () => {
             producerAlias: i.producerAlias
         }));
 
+        // v5 Date Logic: Restore time precision for "Today"
+        const getProperDate = (d: string) => {
+            const input = new Date(d);
+            const now = new Date();
+            if (input.toDateString() === now.toDateString()) return now;
+            return input;
+        };
+        const finalDate = getProperDate(state.date);
+
         await db.transaction('rw', db.invoices, db.invoiceVersions, async () => {
             let invId = state.id;
-            let newRef = state.referenceNumber;
+            let newRef = state.salesNumber;
 
             if (isEditMode.value && invId) {
                 const allVers = await db.invoiceVersions.where('invoiceId').equals(invId).toArray();
                 const maxVer = allVers.length > 0 ? Math.max(...allVers.map(v => v.version)) : 0;
                 const nextVer = maxVer + 1;
-                newRef = `${state.invoiceNumber}-v${nextVer}`;
+                newRef = `${state.salesNumber.split('-v')[0]}-v${nextVer}`;
 
                 const newVerId = await db.invoiceVersions.add({
                     invoiceId: invId,
                     version: nextVer,
-                    date: new Date(state.date),
+                    date: finalDate,
                     sellerDetails: seller,
                     buyerDetails: buyer,
                     items: finalItems,
@@ -337,7 +348,7 @@ const save = async () => {
                     totalTax: finance.value.totalTax,
                     grandTotal: finance.value.grandTotal,
                     roundOff: finance.value.roundOff,
-                    referenceNumber: newRef,
+                    salesNumber: newRef,
                     taxType: finance.value.taxType as any,
                     summaryItem: JSON.parse(JSON.stringify(state.summaryItem)),
                     status: state.status as any,
@@ -347,23 +358,27 @@ const save = async () => {
                 await db.invoices.update(invId, { 
                     currentVersionId: Number(newVerId),
                     grandTotal: finance.value.grandTotal,
-                    date: new Date(state.date),
+                    date: finalDate,
                     status: state.status as any
                 });
 
             } else {
+                // Generate Unified Master ID for New Sales (YXX-Prefix-Seq:GGlobalSeq)
+                const masterId = await getNextMasterId(selectedCompany.value?.invoicePrefix || 'SAL', finalDate);
+
                 invId = await db.invoices.add({
-                    invoiceNumber: state.invoiceNumber,
+                    salesNumber: masterId,
                     customerId: state.customerId as number,
-                    date: new Date(state.date),
+                    date: finalDate,
                     grandTotal: finance.value.grandTotal,
-                    vehicleNumber: state.vehicleNumber
+                    vehicleNumber: state.vehicleNumber,
+                    status: state.status as any
                 } as any);
 
                 const v1Id = await db.invoiceVersions.add({
                     invoiceId: Number(invId),
                     version: 1,
-                    date: new Date(state.date),
+                    date: finalDate,
                     sellerDetails: seller,
                     buyerDetails: buyer,
                     items: finalItems,
@@ -372,7 +387,7 @@ const save = async () => {
                     totalTax: finance.value.totalTax,
                     grandTotal: finance.value.grandTotal,
                     roundOff: finance.value.roundOff,
-                    referenceNumber: state.referenceNumber, 
+                    salesNumber: state.salesNumber, 
                     taxType: finance.value.taxType as any,
                     summaryItem: JSON.parse(JSON.stringify(state.summaryItem)),
                     status: state.status as any,
@@ -384,8 +399,9 @@ const save = async () => {
         });
 
         alert('Sale Saved Successfully');
-        if (state.id) router.push(`/sales/${state.invoiceNumber}`);
-        else router.push(`/sales`);
+        // Redirection Fix: Ensure we go to the Master ID, not the versioned string
+        const rootId = state.salesNumber.split('-v')[0];
+        router.push(`/sales/${rootId}`);
        
     } catch (e: any) {
         alert('Error: ' + e.message);
@@ -405,7 +421,7 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
         <header class="section-company">
             <div class="row-ref-center">
                 <span class="label">Ref:</span>
-                <span class="value">{{ state.referenceNumber || '---' }}</span>
+                <span class="value">{{ state.salesNumber || '---' }}</span>
             </div>
 
             <!-- Company Select -->
@@ -446,10 +462,10 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
                         <span class="value">{{ selectedCompany.phone || '---' }}</span>
                     </div>
 
-                    <!-- Right Column: Invoice Info -->
+                    <!-- Right Column: Sales Info -->
                     <div class="col-right sub-grid">
-                        <span class="label text-right">Invoice No:</span> 
-                        <span class="value-mono highlight">{{ state.invoiceNumber || '---' }}</span>
+                        <span class="label text-right">Sales No.</span> 
+                        <span class="value-mono highlight">{{ state.salesNumber || '---' }}</span>
 
                         <span class="label text-right">Date:</span> 
                         <div class="input-wrapper-fix">

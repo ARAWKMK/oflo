@@ -52,22 +52,27 @@ const loadData = async () => {
         const invNo = route.params.invoiceNo as string;
         if (!invNo) return;
         
-        // Lookup by Invoice Number
-        invoice.value = await db.invoices.where('invoiceNumber').equals(invNo).first();
+        // v5 Deep-Link Guard: If the URL has -vX, strip and select that version
+        const rootId = invNo.split('-v')[0];
+        const vSuffix = invNo.includes('-v') ? invNo.split('-v')[1] : null;
+
+        invoice.value = await db.invoices.where('salesNumber').equals(rootId).first();
 
         if (invoice.value) {
             const id = invoice.value.id!;
-            versions.value = await db.invoiceVersions
-                .where('invoiceId')
-                .equals(id)
-                .reverse() // Newest first
-                .toArray();
+            const vers = await db.invoiceVersions.where('invoiceId').equals(id).toArray();
+            versions.value = vers.sort((a, b) => b.version - a.version);
 
-            // Handle Query Param for deep linking
+            // Version Selection Logic: Query > Suffix > Current
             const qVid = Number(route.query.versionId);
-            if (qVid) selectedVersionId.value = qVid;
-            else if (invoice.value.currentVersionId) selectedVersionId.value = invoice.value.currentVersionId;
-            else if (versions.value.length) selectedVersionId.value = versions.value[0].id; // Fallback to latest
+            if (qVid) {
+                selectedVersionId.value = qVid;
+            } else if (vSuffix) {
+                const targetVer = vers.find(v => v.version === parseInt(vSuffix, 10));
+                selectedVersionId.value = targetVer ? targetVer.id : invoice.value.currentVersionId;
+            } else {
+                selectedVersionId.value = invoice.value.currentVersionId;
+            }
         }
     } catch (e) {
         console.error("Error loading invoice details", e);
@@ -115,7 +120,7 @@ const setAsActive = async () => {
             const nextVersion = maxVer + 1;
             // console.log(`Restore: Version computed: ${nextVersion}`);
 
-            const newRef = `${invoice.value!.invoiceNumber}-v${nextVersion}`;
+            const newRef = `${invoice.value!.salesNumber}-v${nextVersion}`;
 
             const newVersion: InvoiceVersion = {
                 invoiceId: invId,
@@ -126,7 +131,7 @@ const setAsActive = async () => {
                 subTotal: curVerData.subTotal,
                 totalTax: curVerData.totalTax,
                 grandTotal: curVerData.grandTotal,
-                referenceNumber: newRef,
+                salesNumber: newRef,
                 sellerDetails: curVerData.sellerDetails,
                 buyerDetails: curVerData.buyerDetails,
                 taxType: curVerData.taxType || 'IGST',
@@ -176,7 +181,7 @@ const setAsActive = async () => {
 const goToEdit = () => {
     if (!currentVersion.value) return;
     router.push({
-        path: `/sales/edit/${invoice.value?.invoiceNumber}`,
+        path: `/sales/edit/${invoice.value?.salesNumber}`,
         query: { versionId: currentVersion.value.id }
     });
 };
@@ -205,7 +210,7 @@ const adjustCount = (type: keyof typeof customCounts.value, delta: number) => {
 const handlePrintAction = (type: 'invoice' | 'ext' | 'int') => {
     showPrintMenu.value = false;
     if (!currentVersion.value) return;
-    const data = { ...currentVersion.value, invoiceNumber: invoice.value?.invoiceNumber };
+    const data = { ...currentVersion.value, salesNumber: invoice.value?.salesNumber };
     
     if (type === 'invoice') printInvoicePDF(data);
     else printChallanPDF(data, type === 'ext' ? 'External' : 'Internal');
@@ -214,7 +219,7 @@ const handlePrintAction = (type: 'invoice' | 'ext' | 'int') => {
 const handleDownloadAction = (type: 'invoice' | 'ext' | 'int') => {
     showDownloadMenu.value = false;
     if (!currentVersion.value) return;
-    const data = { ...currentVersion.value, invoiceNumber: invoice.value?.invoiceNumber };
+    const data = { ...currentVersion.value, salesNumber: invoice.value?.salesNumber };
     
     if (type === 'invoice') downloadInvoicePDF(data);
     else downloadChallanPDF(data, type === 'ext' ? 'External' : 'Internal');
@@ -223,7 +228,7 @@ const handleDownloadAction = (type: 'invoice' | 'ext' | 'int') => {
 const handleCustomAction = (action: 'print' | 'download') => {
     showCustomMenu.value = false;
     if (!currentVersion.value) return;
-    const data = { ...currentVersion.value, invoiceNumber: invoice.value?.invoiceNumber };
+    const data = { ...currentVersion.value, salesNumber: invoice.value?.salesNumber };
     
     if (action === 'print') printCustomPDF(data, { ...customCounts.value });
     else downloadCustomPDF(data, { ...customCounts.value });
@@ -239,11 +244,11 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
 
 <template>
 <div v-if="!loading && invoice" class="view-wrapper">
-    <PageHeader :title="`Sale ${invoice.invoiceNumber}`" :showBack="true" backUrl="/sales">
+    <PageHeader :title="`Sale ${invoice.salesNumber}${invoice.globalSalesNo ? ' : ' + invoice.globalSalesNo : ''}`" :showBack="true" backUrl="/sales">
         <template #title>
              <div class="header-title-split">
                 <span>Sale</span>
-                <span class="header-ref-no" style="margin-left: 0.5rem;">{{ invoice.invoiceNumber }}</span>
+                <span class="header-ref-no" style="margin-left: 0.5rem;">{{ invoice.salesNumber }}{{ invoice.globalSalesNo ? ' : ' + invoice.globalSalesNo : '' }}</span>
                 <span class="view-status-badge" :class="invoice.status === 'draft' ? 's-draft' : 's-final'">
                     {{ invoice.status === 'draft' ? 'DRAFT' : 'FINAL' }}
                 </span>
@@ -370,7 +375,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                         @click="selectedVersionId = ver.id"
                     >
                         <div class="v-header">
-                            <span class="v-ref">{{ ver.referenceNumber || 'v' + ver.version }}</span>
+                            <span class="v-ref">{{ ver.salesNumber || (ver as any).referenceNumber || 'v' + ver.version }}</span>
                             <span v-if="ver.id === invoice.currentVersionId" class="badge-current">Active</span>
                         </div>
                         <div class="v-date">{{ formatDate(ver.date) }}</div>
@@ -384,7 +389,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                 <!-- Alert if viewing old version -->
                 <div v-if="!isLatestActive" class="version-alert">
                     <Clock :size="16" />
-                    <span>Viewing historical version <strong>{{ currentVersion.referenceNumber }}</strong>.</span>
+                    <span>Viewing historical version <strong>{{ currentVersion.salesNumber }}</strong>.</span>
                 </div>
 
                 <!-- Invoice Paper (Matches InvoiceForm) -->
@@ -394,8 +399,8 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                     <header class="section-company" style="margin-bottom: 2rem;">
                         <!-- Line 0: Reference No (Center) -->
                         <div class="row-ref-center">
-                            <span class="label">Reference No:</span>
-                            <span class="value">{{ currentVersion.referenceNumber || '---' }}</span>
+                            <span class="label">Sales No.</span>
+                            <span class="value">{{ currentVersion.salesNumber || (currentVersion as any).referenceNumber || '---' }}</span>
                         </div>
 
                         <!-- Line 1: Company Name (Center) -->
@@ -420,7 +425,10 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                         <!-- Metric Rows -->
                         <div class="row-split">
                             <div class="left"><span class="label">GSTIN:</span> <span class="value">{{ currentVersion.sellerDetails?.gstin }}</span></div>
-                            <div class="right"><span class="label">Invoice No:</span> <span class="value">{{ invoice.invoiceNumber || '---' }}</span></div>
+                            <div class="right">
+                                <span class="label">Sales No.</span> 
+                                <span class="value">{{ invoice.salesNumber }}</span>
+                            </div>
                         </div>
                         <div class="row-split">
                             <div class="left"><span class="label">Email:</span> <span class="value">{{ currentVersion.sellerDetails?.email || '---' }}</span></div>

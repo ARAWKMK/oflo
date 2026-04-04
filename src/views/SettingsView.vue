@@ -6,6 +6,9 @@ import { ref, onMounted } from 'vue';
 import { db } from '../db/db';
 import { Trash, Shield, Key } from 'lucide-vue-next';
 import { accessControlService } from '../services/accessControlService';
+import { APP_VERSION } from '../version';
+import { DB_VERSION } from '../db/db';
+import { isDbEmpty } from '../services/seedService';
 
 const securitySection = ref({
     hasAdmin: false,
@@ -208,7 +211,6 @@ const canSeed = ref(false);
 
 const loadSeedingStatus = async () => {
     try {
-        const { isDbEmpty } = await import('../services/seedService');
         canSeed.value = await isDbEmpty();
     } catch (e) {
         console.error("Failed to check DB status", e);
@@ -216,15 +218,43 @@ const loadSeedingStatus = async () => {
 };
 
 const handleSeedData = async () => {
-    if (!confirm('This will add demo data (Companies, Customers, Products, Invoices). Continue?')) return;
+    // Check if we can seed
+    const isEmpty = await isDbEmpty();
+    
+    let confirmMsg = 'This will add ~450 demo invoices, companies, and products. Continue?';
+    if (!isEmpty) {
+        confirmMsg = 'Database is NOT empty. To seed demo data, we need to CLEAR all existing Transactions, Companies, and Customers first. Proceed with WIPE & SEED?';
+    }
+
+    if (!confirm(confirmMsg)) return;
+    
+    securitySection.value.isLoading = true;
+    securitySection.value.msg = 'Seeding demo data... please wait...';
     
     try {
         const { seedDemoData } = await import('../services/seedService');
+        
+        // If not empty, we must wipe first (since seedDemoData throws if not empty)
+        if (!isEmpty) {
+            await db.transaction('rw', [db.companies, db.customers, db.products, db.invoices, db.invoiceVersions], async () => {
+                await db.companies.clear();
+                await db.customers.clear();
+                await db.products.clear();
+                await db.invoices.clear();
+                await db.invoiceVersions.clear();
+            });
+        }
+
         await seedDemoData();
-        alert('Demo Data Added! Please refresh to see changes in Reports.');
-        canSeed.value = false; // Disable button after seeding
+        alert('✅ SUCCESS: Demo Data Added! Your dashboard and reports are now populated.');
+        securitySection.value.msg = 'Demo data seeded successfully';
+        canSeed.value = false; 
     } catch (e: any) {
-        alert('Error seeding data: ' + e.message);
+        alert('❌ ERROR: Failed to seed data: ' + e.message);
+        securitySection.value.msg = 'Error seeding data';
+    } finally {
+        securitySection.value.isLoading = false;
+        await loadSeedingStatus();
     }
 };
 
@@ -436,10 +466,25 @@ onMounted(async () => {
         </div>
 
         <div class="actions">
-             <BaseButton variant="secondary" @click="handleSeedData" :disabled="!canSeed" style="margin-right: auto;">
-                 {{ canSeed ? 'Seed Demo Data' : 'Data Already Exists' }}
+             <BaseButton variant="secondary" @click="handleSeedData" :loading="securitySection.isLoading" style="margin-right: auto;">
+                 Seed Demo Data
              </BaseButton>
             <BaseButton @click="save">Save Settings</BaseButton>
+        </div>
+
+        <!-- System Information -->
+        <div class="system-info">
+            <div class="info-title">System Information</div>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">App Version:</span>
+                    <span class="info-value">v{{ APP_VERSION }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Database:</span>
+                    <span class="info-value">v{{ DB_VERSION }}</span>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -502,4 +547,46 @@ onMounted(async () => {
 }
 .icon-btn.danger { background: none; border: none; color: #ff4d4d; cursor: pointer; padding: 4px; }
 .icon-btn.danger:hover { background: rgba(255, 77, 77, 0.1); border-radius: 4px; }
+
+/* System Info Section */
+.system-info {
+    margin-top: 3rem;
+    padding: 1.5rem;
+    background: var(--color-bg-app);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+}
+
+.info-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--color-fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 1rem;
+}
+
+.info-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2rem;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.info-label {
+    font-size: 0.7rem;
+    color: var(--color-fg-secondary);
+}
+
+.info-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    font-family: monospace;
+}
 </style>

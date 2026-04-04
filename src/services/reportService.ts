@@ -111,7 +111,7 @@ export const generateAdvancedReport = async (
             const mon = new Date(d.setDate(diff));
             return 'Wk ' + mon.toLocaleDateString('en-GB');
         }
-        if (dim === 'invoice') return `Inv #${inv.invoiceNumber}`;
+        if (dim === 'invoice') return `Inv #${inv.salesNumber || (inv as any).invoiceNumber}`;
         if (dim === 'customer') return ver.buyerDetails.name;
         if (dim === 'seller') return ver.sellerDetails.name;
         if (dim === 'product' && item) return item.name;

@@ -11,7 +11,8 @@ const groupByOptions = [
     { value: 'seller', label: 'Company' },
     { value: 'customer', label: 'Customer' },
     { value: 'product', label: 'Product' },
-    { value: 'producer', label: 'Producer' }
+    { value: 'producer', label: 'Producer' },
+    { value: 'alias', label: 'Alias' }
 ];
 
 const timeframeOptions = [

@@ -247,8 +247,9 @@ const drawInvoicePage = (doc: any, data: any, settings: any) => {
         rightCursorY += lineHeight * valLines.length;
     };
 
-    const invNo = data.invoiceNumber || data.invoice_number || '-';
-    drawMeta('Invoice No', invNo);
+    const fullInvNo = data.salesNumber || data.invoiceNumber || data.invoice_number || '-';
+    const displayInvNo = fullInvNo.includes(':') ? fullInvNo.split(':')[0] : fullInvNo;
+    drawMeta('Invoice No.', displayInvNo);
     drawMeta('Date', data.date ? new Date(data.date).toLocaleDateString('en-GB') : '-');
     if (data.vehicleNumber) drawMeta('Vehicle No', data.vehicleNumber);
 
@@ -781,8 +782,12 @@ const drawChallanPage = (doc: any, data: any, settings: any, type: 'Internal' | 
         rightCursorY += lineHeight;
     };
 
-    const invNo = data.invoiceNumber || data.invoice_number || '-';
-    drawMeta('Challan No', invNo);
+    const fullId = (data.salesNumber || data.invoiceNumber || data.invoice_number || '-');
+    const displayId = (type === 'Internal') 
+        ? fullId 
+        : (fullId.includes(':') ? fullId.split(':')[0] : fullId);
+    
+    drawMeta('Challan No.', displayId);
     drawMeta('Date', data.date ? new Date(data.date).toLocaleDateString('en-GB') : '-');
     if (data.vehicleNumber) drawMeta('Vehicle No', data.vehicleNumber);
 
@@ -1169,7 +1174,7 @@ export const generateCustomPDF = (data: any, counts: any, settings: any) => {
 export const downloadInvoicePDF = async (invoiceData: any) => {
     const settings = await getPDFSettings();
     const doc = generateInvoicePDF(invoiceData, settings);
-    const fileName = `Invoice_${invoiceData.referenceNumber || invoiceData.invoiceNumber}.pdf`;
+    const fileName = `Invoice_${invoiceData.salesNumber || invoiceData.invoiceNumber}.pdf`;
     doc.save(fileName);
 };
 
@@ -1185,7 +1190,7 @@ export const downloadChallanPDF = async (data: any, type: 'Internal' | 'External
     const settings = await getPDFSettings();
     const doc = generateChallanPDF(data, settings, type);
     const prefix = type === 'Internal' ? 'Self' : 'Delivery';
-    doc.save(`${prefix}_Challan_${data.invoiceNumber}.pdf`);
+    doc.save(`${prefix}_Challan_${data.salesNumber || data.invoiceNumber}.pdf`);
 };
 
 export const printChallanPDF = async (data: any, type: 'Internal' | 'External') => {
@@ -1199,7 +1204,7 @@ export const printChallanPDF = async (data: any, type: 'Internal' | 'External') 
 export const downloadCustomPDF = async (data: any, counts: any) => {
     const settings = await getPDFSettings();
     const doc = generateCustomPDF(data, counts, settings);
-    const fileName = `Custom_${data.referenceNumber || data.invoiceNumber}.pdf`;
+    const fileName = `Custom_${data.salesNumber || data.invoiceNumber}.pdf`;
     doc.save(fileName);
 };
 

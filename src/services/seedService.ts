@@ -1,4 +1,5 @@
 import { db, type InvoiceVersion, type InvoiceItem, type Company, type Customer, type Product } from '../db/db';
+import { getFiscalYear, formatMasterId } from './sequenceService';
 
 // Extended types for Seeding only (to include stateCode for logic)
 interface SeedCompany extends Company {
@@ -70,72 +71,49 @@ export const seedDemoData = async () => {
 
     await db.transaction('rw', [db.companies, db.customers, db.products, db.invoices, db.invoiceVersions], async () => {
         // 1. Add Entities
-        // Remove stateCode before inserting to DB to avoid type error? 
-        // IndexedDB is schema-less/flexible in JS, it will just store the extra prop. 
-        // But TS might complain if we cast to Company.
-        // Let's rely on 'as any' for insertion to bypass strict interface check for the extra field,
-        // or cleaner: destructure.
-
         const companiesWithIds: (SeedCompany & { id: number })[] = [];
         const customersWithIds: (SeedCustomer & { id: number })[] = [];
 
-        // Setup Companies
         for (const c of COMPANIES) {
-            const { stateCode, ...dbComp } = c;
+            const { stateCode: _sc, ...dbComp } = c;
             const id = await db.companies.add(dbComp as Company);
             companiesWithIds.push({ ...c, id: id as number });
         }
 
-        // Setup Customers
         for (const c of CUSTOMERS) {
-            const { stateCode, ...dbCust } = c;
+            const { stateCode: _sc, ...dbCust } = c;
             const id = await db.customers.add(dbCust as Customer);
             customersWithIds.push({ ...c, id: id as number });
         }
 
-        // Setup Products
         const prodIds = await db.products.bulkAdd(PRODUCTS as Product[], { allKeys: true }) as number[];
         const loadedProds = (await db.products.bulkGet(prodIds)).filter((p): p is Product => !!p);
 
-        // 2. Generate Invoices
-        // Date Range: April 1, 2024 to Present
+        // 2. Prepare Mock Invoices
+        const TOTAL_INVOICES = getRandomInt(400, 500);
         const startDate = new Date('2024-04-01');
         const endDate = new Date();
-
-        const TOTAL_INVOICES = getRandomInt(400, 500);
-
-        // Track counters per company
-        const companyCounters: Record<number, number> = {};
-        companiesWithIds.forEach(c => companyCounters[c.id] = 1);
+        const rawInvoices: any[] = [];
 
         for (let i = 0; i < TOTAL_INVOICES; i++) {
-            // Pick Random Company & Customer
             const comp = companiesWithIds[getRandomInt(0, companiesWithIds.length - 1)];
             const cust = customersWithIds[getRandomInt(0, customersWithIds.length - 1)];
-
-            // Increment Invoice Counter
-            const seq = companyCounters[comp.id];
-            companyCounters[comp.id]++;
-            const invoiceNumber = `${comp.invoicePrefix}-${seq}`;
-
             const invDate = getRandomDate(startDate, endDate);
 
-            // Tax Logic
             const isIntrastate = comp.stateCode === cust.stateCode;
             const taxType = isIntrastate ? 'CGST_SGST' : 'IGST';
 
-            // Random Items (1 to 3)
-            const numItems = getRandomInt(1, 3);
+            const numItems = getRandomInt(1, 4);
             const items: InvoiceItem[] = [];
-            let totalTax = 0;
             let subTotal = 0;
+            let totalTax = 0;
 
             for (let j = 0; j < numItems; j++) {
                 const prod = loadedProds[getRandomInt(0, loadedProds.length - 1)];
                 const bags = getRandomInt(1, 100);
-                const quantity = bags * 25; // 1 Bag = 25kg
-                const unitPrice = prod.unitPrice; // Fixed Price
-                const taxRate = 18; // Fixed Tax
+                const quantity = bags * 25;
+                const unitPrice = prod.unitPrice;
+                const taxRate = prod.taxRate;
 
                 const amount = quantity * unitPrice;
                 const taxAmount = (amount * taxRate) / 100;
@@ -143,7 +121,6 @@ export const seedDemoData = async () => {
                 subTotal += amount;
                 totalTax += taxAmount;
 
-                // Random Producer (from Companies)
                 const producer = companiesWithIds[getRandomInt(0, companiesWithIds.length - 1)];
 
                 items.push({
@@ -154,67 +131,103 @@ export const seedDemoData = async () => {
                     quantity,
                     unitPrice,
                     taxRate,
-                    totalAmount: amount, // Logic Change (v4-calc): Use Subtotal only
+                    totalAmount: amount,
                     taxAmount,
                     numberOfBags: bags,
                     producerName: producer.name,
-                    producerId: producer.id
+                    producerId: producer.id,
+                    producerAlias: producer.alias || producer.name
                 });
             }
 
             const grandTotal = subTotal + totalTax;
+            const summaryDesc = items[0].description;
+            const summaryHSN = items[0].hsn;
+            const sumBags = items.reduce((s, it) => s + (Number(it.numberOfBags)||0), 0);
+            const sumQty = items.reduce((s, it) => s + (Number(it.quantity)||0), 0);
 
-            // v4: Generate Summary Item for Seeding
-            const first = items[0];
-            const sumBags = items.reduce((s, i) => s + (Number(i.numberOfBags)||0), 0);
-            const sumQty = items.reduce((s, i) => s + (Number(i.quantity)||0), 0);
-
-            const summaryItem = {
-                description: first.description,
-                hsn: first.hsn,
-                unitPrice: first.unitPrice,
-                taxRate: first.taxRate,
-                numberOfBags: sumBags,
-                quantity: sumQty,
-                taxAmount: totalTax,
-                totalAmount: subTotal,
-                invoiceProductName: cust.invoiceProductName || 'PLASTIC REPROCESS GRANULES'
-            };
-
-            // Remove stateCode for DB object
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { stateCode: _sc, ...dbComp } = comp;
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { stateCode: _cc, ...dbCust } = cust;
-
-            // Version
-            const version: InvoiceVersion = {
-                invoiceId: 0, // Set later
-                version: 1,
+            rawInvoices.push({
                 date: invDate,
+                comp,
+                cust,
                 items,
                 subTotal,
                 totalTax,
                 grandTotal,
-                sellerDetails: dbComp,
-                buyerDetails: dbCust,
-                referenceNumber: invoiceNumber,
-                createdAt: invDate,
-                taxType, // Populated
-                summaryItem // Added (v4)
-            };
+                taxType,
+                summaryItem: {
+                    description: summaryDesc,
+                    hsn: summaryHSN,
+                    unitPrice: items[0].unitPrice,
+                    taxRate: items[0].taxRate,
+                    numberOfBags: sumBags,
+                    quantity: sumQty,
+                    taxAmount: totalTax,
+                    totalAmount: subTotal,
+                    invoiceProductName: cust.invoiceProductName || 'RAW PLASTIC MATERIALS'
+                }
+            });
+        }
+
+        // 3. Chronological Numbering & Insertion
+        rawInvoices.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+        // Tracking counters per Fiscal Year
+        // { year: { total: X, companies: { compId: Y } } }
+        const audit: Record<number, { global: number, companies: Record<number, number> }> = {};
+
+        for (const data of rawInvoices) {
+            const fiscalYear = getFiscalYear(data.date);
+            
+            if (!audit[fiscalYear]) {
+                audit[fiscalYear] = { global: 0, companies: {} };
+            }
+            
+            const yearData = audit[fiscalYear];
+            yearData.global++;
+            
+            if (!yearData.companies[data.comp.id]) {
+                yearData.companies[data.comp.id] = 0;
+            }
+            yearData.companies[data.comp.id]++;
+
+            const masterId = formatMasterId(
+                fiscalYear, 
+                data.comp.invoicePrefix, 
+                yearData.companies[data.comp.id], 
+                yearData.global
+            );
+
+            // Snapshots
+            const { stateCode: _s1, ...seller } = data.comp;
+            const { stateCode: _s2, ...buyer } = data.cust;
 
             const invId = await db.invoices.add({
-                invoiceNumber,
-                date: invDate,
-                customerId: cust.id,
-                grandTotal,
-                status: 'final',
+                salesNumber: masterId,
+                date: data.date,
+                customerId: data.cust.id,
+                grandTotal: data.grandTotal,
+                status: 'final'
             });
 
-            version.invoiceId = invId as number;
-            const verId = await db.invoiceVersions.add(version);
+            const version: InvoiceVersion = {
+                invoiceId: invId as number,
+                version: 1,
+                date: data.date,
+                items: data.items,
+                subTotal: data.subTotal,
+                totalTax: data.totalTax,
+                grandTotal: data.grandTotal,
+                sellerDetails: seller as Company,
+                buyerDetails: buyer as Customer,
+                salesNumber: masterId,
+                createdAt: data.date,
+                taxType: data.taxType,
+                summaryItem: data.summaryItem,
+                status: 'final'
+            };
 
+            const verId = await db.invoiceVersions.add(version);
             await db.invoices.update(invId, { currentVersionId: verId as number });
         }
     });

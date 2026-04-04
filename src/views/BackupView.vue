@@ -4,6 +4,10 @@ import BaseButton from '../components/ui/BaseButton.vue';
 import PageHeader from '../components/ui/PageHeader.vue';
 import { db } from '../db/db';
 import { ref, toRaw, computed } from 'vue';
+import { standardizeSalesData } from '../services/migrationService';
+
+import { APP_VERSION } from '../version';
+import { DB_VERSION } from '../db/db';
 
 const showRestoreModal = ref(false);
 const restoreData = ref<any>(null); // Holds { meta, data }
@@ -28,8 +32,7 @@ const getCount = (key: string) => {
 };
 
 // Current App Version for Metadata
-const APP_VERSION = '5.1.0-v5'; // Matching the Oflo V5 Release
-const SCHEMA_VERSION = 7; // Current IndexDB v7
+const SCHEMA_VERSION = DB_VERSION;
 
 const backup = async () => {
     try {
@@ -42,6 +45,11 @@ const backup = async () => {
             invoiceVersions: await db.invoiceVersions.toArray(),
             fonts: await db.fonts.toArray()
         };
+
+        // v5: Final Migration Engine (Healing on Export)
+        const { invoices, versions } = standardizeSalesData(fullData.invoices, fullData.invoiceVersions);
+        fullData.invoices = invoices;
+        fullData.invoiceVersions = versions;
 
         const exportPayload = {
             meta: {
@@ -138,7 +146,14 @@ const confirmRestore = async () => {
                 }
             }
 
-            // --- STEP 2: RESTORE DATA ---
+            // --- STEP 2: STANDARDIZE & RESTORE DATA ---
+            
+            // v5/v9: Apply End-Year branding and re-indexing to incoming data
+            if (selection.value.invoices && rawData.invoices?.length) {
+                const { invoices, versions } = standardizeSalesData(rawData.invoices, rawData.invoiceVersions || []);
+                rawData.invoices = invoices;
+                rawData.invoiceVersions = versions;
+            }
             
             // 1. Profiles (With v5/v7 Backfills/Sanitization)
             if (selection.value.companies && rawData.companies?.length) {
@@ -176,6 +191,7 @@ const confirmRestore = async () => {
                 // Fix Date Objects for Invoices
                 const fixInvoiceDates = (list: any[]) => list.map(item => ({
                     ...item,
+                    salesNumber: item.salesNumber || item.invoiceNumber, // v9 Branding
                     date: new Date(item.date),
                     status: item.status || 'final'
                 }));
@@ -183,6 +199,7 @@ const confirmRestore = async () => {
                 // Fix Date Objects and Snapshots for Versions
                 const fixVersionDates = (list: any[]) => list.map(item => ({
                     ...item,
+                    salesNumber: item.salesNumber || item.referenceNumber, // v8 Branding
                     date: new Date(item.date),
                     createdAt: item.createdAt ? new Date(item.createdAt) : new Date(item.date),
                     status: item.status || 'final',
@@ -200,7 +217,13 @@ const confirmRestore = async () => {
             }
         });
 
-        alert('Restore Completed Successfully!');
+        const isLegacy = restoreSource.value === 'v1' || !restoreData.value?.meta?.appVersion?.includes('v5');
+
+        alert(isLegacy 
+            ? 'Restore Successful! Note: This was legacy data. To finalize your numbering format, please perform one more Backup and Restore cycle now.' 
+            : 'Restore Completed Successfully!'
+        );
+        
         showRestoreModal.value = false;
         restoreData.value = null;
         // Optional: Reload to reflect changes
@@ -283,9 +306,9 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
                 <label class="checkbox-row" :class="{ disabled: !getCount('invoices') }">
                     <input type="checkbox" v-model="selection.invoices" :disabled="!getCount('invoices')">
                     <div class="row-info">
-                        <span class="row-title">Invoices & History</span>
+                        <span class="row-title">Sales & History</span>
                         <span class="row-count">
-                            {{ getCount('invoices') }} invoices, 
+                            {{ getCount('invoices') }} sales, 
                             {{ getCount('invoiceVersions') }} versions
                         </span>
                     </div>

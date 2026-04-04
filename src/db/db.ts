@@ -1,5 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 
+export const DB_VERSION = 9;
+
 export interface Company {
     id?: number;
     name: string;
@@ -78,7 +80,8 @@ export interface InvoiceSummaryItem {
 
 export interface Invoice {
     id?: number;
-    invoiceNumber: string;
+    salesNumber: string;
+    globalSalesNo?: string; // v5 Global Year Counter (YXX-GXXXX)
     customerId: number;
     date: Date;
     vehicleNumber?: string;
@@ -100,7 +103,7 @@ export interface InvoiceVersion {
     items: InvoiceItem[];
     summaryItem?: InvoiceSummaryItem; // Added v3
 
-    referenceNumber: string;
+    salesNumber: string;
 
     // Financials
     subTotal: number;
@@ -132,6 +135,44 @@ export class OfloDB extends Dexie {
 
     constructor() {
         super('OfloDB');
+
+        // Define Version 9 (final branding: salesNumber)
+        this.version(DB_VERSION).stores({
+            companies: '++id, name, alias, gstin',
+            customers: '++id, name, gstin',
+            products: '++id, name, sku',
+            invoices: '++id, salesNumber, currentVersionId, customerId, date, status',
+            invoiceVersions: '++id, invoiceId, version, date',
+            settings: 'key',
+            fonts: '++id, name'
+        }).upgrade(async tx => {
+            // Migration v9: Rename invoiceNumber to salesNumber for branding
+            await tx.table('invoices').toCollection().modify((i: any) => {
+                if (i.invoiceNumber && !i.salesNumber) {
+                    i.salesNumber = i.invoiceNumber;
+                    delete i.invoiceNumber;
+                }
+            });
+        });
+
+        // Define Version 8 (v5 branding: salesNumber)
+        this.version(8).stores({
+            companies: '++id, name, alias, gstin',
+            customers: '++id, name, gstin',
+            products: '++id, name, sku',
+            invoices: '++id, invoiceNumber, currentVersionId, customerId, date, status',
+            invoiceVersions: '++id, invoiceId, version, date',
+            settings: 'key',
+            fonts: '++id, name'
+        }).upgrade(async tx => {
+            // Migration v8: Rename referenceNumber to salesNumber for branding
+            await tx.table('invoiceVersions').toCollection().modify((v: any) => {
+                if (v.referenceNumber && !v.salesNumber) {
+                    v.salesNumber = v.referenceNumber;
+                    delete v.referenceNumber;
+                }
+            });
+        });
 
         // Define Version 7 (v5: Company Alias)
         this.version(7).stores({
