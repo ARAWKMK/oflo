@@ -128,10 +128,10 @@ const appSettings = ref({
     pdfFontCompanyBold: true,
     pdfFontCompanyItalic: false,
     pdfFontBody: 'helvetica',
+    pdfQuality: 'standard', // 'standard' | 'high'
     // PDF Config
-    pdfPageSizeInvoice: 'a4',
-    pdfPageSizeChallan: 'a4',
-    pdfQuality: 'standard' // 'standard' | 'high'
+    pdfPageSizeSale: 'a4',
+    pdfPageSizeChallan: 'a4'
 });
 
 const fontList = ref<any[]>([]);
@@ -221,7 +221,7 @@ const handleSeedData = async () => {
     // Check if we can seed
     const isEmpty = await isDbEmpty();
     
-    let confirmMsg = 'This will add ~450 demo invoices, companies, and products. Continue?';
+    let confirmMsg = 'This will add ~450 demo sales, companies, and products. Continue?';
     if (!isEmpty) {
         confirmMsg = 'Database is NOT empty. To seed demo data, we need to CLEAR all existing Transactions, Companies, and Customers first. Proceed with WIPE & SEED?';
     }
@@ -236,12 +236,12 @@ const handleSeedData = async () => {
         
         // If not empty, we must wipe first (since seedDemoData throws if not empty)
         if (!isEmpty) {
-            await db.transaction('rw', [db.companies, db.customers, db.products, db.invoices, db.invoiceVersions], async () => {
+            await db.transaction('rw', [db.companies, db.customers, db.products, db.sales, db.salesVersions], async () => {
                 await db.companies.clear();
                 await db.customers.clear();
                 await db.products.clear();
-                await db.invoices.clear();
-                await db.invoiceVersions.clear();
+                await db.sales.clear();
+                await db.salesVersions.clear();
             });
         }
 
@@ -273,8 +273,8 @@ onMounted(async () => {
         <h3 style="margin-top: 0; padding-top: 0;">PDF Configuration</h3>
         <div class="form-grid">
              <div class="input-group">
-                <label>Page Size (Invoice)</label>
-                <select v-model="appSettings.pdfPageSizeInvoice" class="base-select">
+                <label>Page Size (Sale)</label>
+                <select v-model="appSettings.pdfPageSizeSale" class="base-select">
                     <option value="a4">A4 (210mm x 297mm)</option>
                     <option value="letter">Letter (216mm x 279mm)</option>
                     <option value="executive">Executive (184mm x 267mm)</option>

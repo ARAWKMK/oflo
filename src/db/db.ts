@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 
-export const DB_VERSION = 9;
+export const DB_VERSION = 10;
 
 export interface Company {
     id?: number;
@@ -10,7 +10,7 @@ export interface Company {
     address: string;
     phone: string;
     email: string;
-    invoicePrefix: string;
+    salesPrefix: string;
     bankName?: string;
     accountNumber?: string;
     ifscCode?: string;
@@ -33,7 +33,7 @@ export interface Customer {
     deliveryAddress?: string; // Deprecated but kept for type safety during migration
 
     // v4 Updates
-    invoiceProductName?: string;
+    saleProductName?: string;
 }
 
 export interface Product {
@@ -46,7 +46,7 @@ export interface Product {
     taxRate: number;
 }
 
-export interface InvoiceItem {
+export interface SaleItem {
     productId: number;
     name: string;
     description: string;
@@ -65,7 +65,7 @@ export interface InvoiceItem {
 }
 
 // v3: Single Summary Row for Tax Invoice
-export interface InvoiceSummaryItem {
+export interface SaleSummaryItem {
     description: string;
     hsn: string;
     numberOfBags: number;
@@ -75,10 +75,10 @@ export interface InvoiceSummaryItem {
     taxAmount: number;
     totalAmount: number;
     // v4
-    invoiceProductName?: string; 
+    saleProductName?: string; 
 }
 
-export interface Invoice {
+export interface Sale {
     id?: number;
     salesNumber: string;
     globalSalesNo?: string; // v5 Global Year Counter (YXX-GXXXX)
@@ -90,9 +90,9 @@ export interface Invoice {
     status?: 'draft' | 'final'; // v4
 }
 
-export interface InvoiceVersion {
+export interface SaleVersion {
     id?: number;
-    invoiceId: number;
+    saleId: number; // Formerly invoiceId
     version: number;
     date: Date;
     vehicleNumber?: string;
@@ -100,8 +100,8 @@ export interface InvoiceVersion {
     // Snapshots
     sellerDetails: Company;
     buyerDetails: Customer;
-    items: InvoiceItem[];
-    summaryItem?: InvoiceSummaryItem; // Added v3
+    items: SaleItem[];
+    summaryItem?: SaleSummaryItem; // Added v3
 
     salesNumber: string;
 
@@ -128,16 +128,41 @@ export class OfloDB extends Dexie {
     companies!: Table<Company>;
     customers!: Table<Customer>;
     products!: Table<Product>;
-    invoices!: Table<Invoice>;
-    invoiceVersions!: Table<InvoiceVersion>;
+    sales!: Table<Sale>;
+    salesVersions!: Table<SaleVersion>;
     settings!: Table<{ key: string, value: any }>;
     fonts!: Table<Font>;
 
     constructor() {
         super('OfloDB');
 
-        // Define Version 9 (final branding: salesNumber)
-        this.version(DB_VERSION).stores({
+        // Define Version 10 (Full Sales Refactor)
+        this.version(10).stores({
+            companies: '++id, name, alias, gstin',
+            customers: '++id, name, gstin',
+            products: '++id, name, sku',
+            sales: '++id, salesNumber, currentVersionId, customerId, date, status',
+            salesVersions: '++id, saleId, version, date',
+            settings: 'key',
+            fonts: '++id, name'
+        }).upgrade(async tx => {
+            // Migration v10: Move data from invoices tables to sales tables
+            const invoices = await tx.table('invoices').toArray();
+            if (invoices.length > 0) {
+                await tx.table('sales').bulkAdd(invoices);
+            }
+            const versions = await tx.table('invoiceVersions').toArray();
+            if (versions.length > 0) {
+                const mapped = versions.map((v: any) => ({
+                    ...v,
+                    saleId: v.invoiceId // Map old FK to new property
+                }));
+                await tx.table('salesVersions').bulkAdd(mapped);
+            }
+        });
+
+        // Version 9 (Branding: salesNumber)
+        this.version(9).stores({
             companies: '++id, name, alias, gstin',
             customers: '++id, name, gstin',
             products: '++id, name, sku',
@@ -145,17 +170,9 @@ export class OfloDB extends Dexie {
             invoiceVersions: '++id, invoiceId, version, date',
             settings: 'key',
             fonts: '++id, name'
-        }).upgrade(async tx => {
-            // Migration v9: Rename invoiceNumber to salesNumber for branding
-            await tx.table('invoices').toCollection().modify((i: any) => {
-                if (i.invoiceNumber && !i.salesNumber) {
-                    i.salesNumber = i.invoiceNumber;
-                    delete i.invoiceNumber;
-                }
-            });
         });
 
-        // Define Version 8 (v5 branding: salesNumber)
+        // Version 8 (v5 branding)
         this.version(8).stores({
             companies: '++id, name, alias, gstin',
             customers: '++id, name, gstin',
@@ -164,14 +181,6 @@ export class OfloDB extends Dexie {
             invoiceVersions: '++id, invoiceId, version, date',
             settings: 'key',
             fonts: '++id, name'
-        }).upgrade(async tx => {
-            // Migration v8: Rename referenceNumber to salesNumber for branding
-            await tx.table('invoiceVersions').toCollection().modify((v: any) => {
-                if (v.referenceNumber && !v.salesNumber) {
-                    v.salesNumber = v.referenceNumber;
-                    delete v.referenceNumber;
-                }
-            });
         });
 
         // Define Version 7 (v5: Company Alias)
@@ -183,19 +192,6 @@ export class OfloDB extends Dexie {
             invoiceVersions: '++id, invoiceId, version, date',
             settings: 'key',
             fonts: '++id, name'
-        }).upgrade(async tx => {
-            // Migration v7: Initialize alias for companies
-            await tx.table('companies').toCollection().modify(c => {
-                if (!c.alias) c.alias = c.name;
-            });
-            // Migration v7: Initialize producerAlias for all invoice versions
-            await tx.table('invoiceVersions').toCollection().modify((v: InvoiceVersion) => {
-                if (v.items) {
-                    v.items.forEach(item => {
-                        if (!item.producerAlias) item.producerAlias = item.producerName || '';
-                    });
-                }
-            });
         });
 
         // Define Version 6 (v4: Dynamic Product Name)
@@ -207,13 +203,6 @@ export class OfloDB extends Dexie {
             invoiceVersions: '++id, invoiceId, version, date',
             settings: 'key',
             fonts: '++id, name'
-        }).upgrade(async tx => {
-            // Migration v6: Initialize invoiceProductName for customers if missing
-            await tx.table('customers').toCollection().modify(c => {
-                if (!c.invoiceProductName) {
-                    c.invoiceProductName = ''; 
-                }
-            });
         });
 
         // Define Version 5 (v3 Update: Multi-Address)
@@ -225,16 +214,6 @@ export class OfloDB extends Dexie {
             invoiceVersions: '++id, invoiceId, version, date',
             settings: 'key',
             fonts: '++id, name'
-        }).upgrade(async tx => {
-            // Migration v5: Initialize deliveryAddresses from existing address
-            await tx.table('customers').toCollection().modify(c => {
-                if (!c.deliveryAddresses) {
-                    c.deliveryAddresses = c.deliveryAddress ? [c.deliveryAddress] : (c.address ? [c.address] : []);
-                }
-                if (c.enableDelivery === undefined) {
-                    c.enableDelivery = false;
-                }
-            });
         });
 
         // Define Version 4
@@ -242,14 +221,10 @@ export class OfloDB extends Dexie {
             companies: '++id, name, gstin',
             customers: '++id, name, gstin',
             products: '++id, name, sku',
-            invoices: '++id, invoiceNumber, currentVersionId, customerId, date, status', // Added status index
+            invoices: '++id, invoiceNumber, currentVersionId, customerId, date, status',
             invoiceVersions: '++id, invoiceId, version, date',
             settings: 'key',
             fonts: '++id, name'
-        }).upgrade(async tx => {
-            // Migration v4: Set default status 'final' for existing
-            await tx.table('invoices').toCollection().modify(i => i.status = 'final');
-            await tx.table('invoiceVersions').toCollection().modify(v => v.status = 'final');
         });
 
         // Define Version 3
@@ -261,24 +236,6 @@ export class OfloDB extends Dexie {
             invoiceVersions: '++id, invoiceId, version, date',
             settings: 'key',
             fonts: '++id, name'
-        }).upgrade(async tx => {
-            // Migration: Create default Summary Item for existing versions
-            await tx.table('invoiceVersions').toCollection().modify((ver: InvoiceVersion) => {
-                if (!ver.summaryItem && ver.items && ver.items.length > 0) {
-                    const first = ver.items[0];
-                    ver.summaryItem = {
-                        description: first.description,
-                        hsn: first.hsn,
-                        unitPrice: first.unitPrice,
-                        taxRate: first.taxRate,
-                        // Sums
-                        numberOfBags: ver.items.reduce((sum, item) => sum + (Number(item.numberOfBags) || 0), 0),
-                        quantity: ver.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
-                        taxAmount: ver.items.reduce((sum, item) => sum + (Number(item.taxAmount) || 0), 0),
-                        totalAmount: ver.items.reduce((sum, item) => sum + (Number(item.totalAmount) || 0), 0)
-                    };
-                }
-            });
         });
 
         this.version(2).stores({

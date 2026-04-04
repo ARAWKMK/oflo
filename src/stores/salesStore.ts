@@ -1,44 +1,45 @@
 import { defineStore } from 'pinia';
-import { db, type Invoice, type InvoiceVersion, type Company, type Customer, type InvoiceItem } from '../db/db';
+import { db, type Sale, type SaleVersion, type Company, type Customer, type SaleItem } from '../db/db';
 import { getNextMasterId } from '../services/sequenceService';
 
-export const useInvoiceStore = defineStore('invoices', {
+export const useSalesStore = defineStore('sales', {
     state: () => ({
         // We generally fetch live from DB, but can keep some UI state here
-        lastInvoiceNumber: '...'
+        lastSalesNumber: '...'
     }),
     actions: {
-        async generateNextInvoiceNumber(companyId: number, date: Date): Promise<string> {
+        async generateNextSalesNumber(companyId: number, date: Date): Promise<string> {
             const company = await db.companies.get(companyId);
             if (!company) return 'YXX-UNKNOWN-1:G1';
 
-            const prefix = (company.invoicePrefix || 'INV').trim();
+            const prefix = (company.salesPrefix || 'SAL').trim(); // Default changed to SAL
             return await getNextMasterId(prefix, date);
         },
 
-        async createInvoice(data: {
+        async createSale(data: {
             company: Company,
             customer: Customer,
             date: Date,
             vehicleNumber?: string,
-            items: InvoiceItem[],
+            items: SaleItem[],
             financials: { subTotal: number, totalTax: number, grandTotal: number }
         }) {
-            return await db.transaction('rw', db.invoices, db.invoiceVersions, async () => {
-                const invNum = await this.generateNextInvoiceNumber(data.company.id!, data.date);
+            return await db.transaction('rw', db.sales, db.salesVersions, async () => {
+                const salesNum = await this.generateNextSalesNumber(data.company.id!, data.date);
 
                 // 1. Create Master Record
-                const invoiceId = await db.invoices.add({
-                    salesNumber: invNum,
+                const saleId = await db.sales.add({
+                    salesNumber: salesNum,
                     customerId: data.customer.id!,
                     date: data.date,
                     vehicleNumber: data.vehicleNumber,
-                    grandTotal: data.financials.grandTotal
-                } as Invoice);
+                    grandTotal: data.financials.grandTotal,
+                    status: 'final'
+                } as Sale);
 
                 // 2. Create Version Snapshot
-                const versionId = await db.invoiceVersions.add({
-                    invoiceId: Number(invoiceId),
+                const versionId = await db.salesVersions.add({
+                    saleId: Number(saleId),
                     version: 1,
                     date: data.date,
                     vehicleNumber: data.vehicleNumber,
@@ -48,13 +49,15 @@ export const useInvoiceStore = defineStore('invoices', {
                     subTotal: data.financials.subTotal,
                     totalTax: data.financials.totalTax,
                     grandTotal: data.financials.grandTotal,
+                    salesNumber: salesNum,
+                    status: 'final',
                     createdAt: new Date()
-                } as InvoiceVersion);
+                } as SaleVersion);
 
                 // Update master with pointer
-                await db.invoices.update(Number(invoiceId), { currentVersionId: Number(versionId) });
+                await db.sales.update(Number(saleId), { currentVersionId: Number(versionId) });
 
-                return invoiceId;
+                return saleId;
             });
         }
     }

@@ -10,10 +10,16 @@ import {
 } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { onMounted } from 'vue';
+import { printStoredAudit } from './services/migrationService';
 
 const route = useRoute();
 const router = useRouter();
 const isMenuOpen = ref(false);
+
+onMounted(() => {
+  printStoredAudit();
+});
 
 const toggleMenu = () => {
   isMenuOpen.value = !isMenuOpen.value;

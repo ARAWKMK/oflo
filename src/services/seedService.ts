@@ -1,4 +1,4 @@
-import { db, type InvoiceVersion, type InvoiceItem, type Company, type Customer, type Product } from '../db/db';
+import { db, type SaleVersion, type SaleItem, type Company, type Customer, type Product } from '../db/db';
 import { getFiscalYear, formatMasterId } from './sequenceService';
 
 // Extended types for Seeding only (to include stateCode for logic)
@@ -10,29 +10,29 @@ interface SeedCustomer extends Customer {
 }
 
 const COMPANIES: SeedCompany[] = [
-    { name: "AgriCorp Solutions", alias: "AgriCorp", tagline: "Farming the Future", gstin: "29AAAAA0000A1Z5", address: "123 Green Way, Bangalore, KA", phone: "9988776655", email: "info@agricorp.com", invoicePrefix: "ACS", bankName: "HDFC", accountNumber: "50100012345678", ifscCode: "HDFC0001234", stateCode: "KA" },
-    { name: "FarmTech India", alias: "FarmTech", tagline: "Tech for Farmers", gstin: "29BBBBB1111B1Z6", address: "45 Tech Park, Mysore, KA", phone: "9876543210", email: "sales@farmtech.com", invoicePrefix: "FTI", bankName: "SBI", accountNumber: "30001234567", ifscCode: "SBIN0001234", stateCode: "KA" },
-    { name: "GreenHarvest Ltd", alias: "Harvest", tagline: "Pure & Organic", gstin: "27CCCCC2222C1Z7", address: "88 Market St, Pune, MH", phone: "020-12345678", email: "contact@greenharvest.com", invoicePrefix: "GHL", bankName: "ICICI", accountNumber: "100012345678", ifscCode: "ICIC0001234", stateCode: "MH" },
-    { name: "Rural Supplies Co", alias: "Rural", tagline: "Supplying Villages", gstin: "33DDDDD3333D1Z8", address: "12 Village Rd, Chennai, TN", phone: "9123456789", email: "support@ruralsupplies.com", invoicePrefix: "RSC", bankName: "Axis", accountNumber: "91234567891234", ifscCode: "UTIB0001234", stateCode: "TN" },
-    { name: "CropCare Systems", alias: "CropCare", tagline: "Caring for Crops", gstin: "36EEEEE4444E1Z9", address: "55 Field Ave, Hyderabad, TS", phone: "9900990099", email: "hello@cropcare.com", invoicePrefix: "CCS", bankName: "Kotak", accountNumber: "8877665544", ifscCode: "KKBK0001234", stateCode: "TS" },
-    { name: "SeedGro Pvt Ltd", alias: "SeedGro", tagline: "Quality Seeds", gstin: "24FFFFF5555F1Z0", address: "22 Seed Ln, Ahmedabad, GJ", phone: "9898989898", email: "sales@seedgro.com", invoicePrefix: "SGL", bankName: "BoB", accountNumber: "200012345678", ifscCode: "BARB0ABCD", stateCode: "GJ" },
-    { name: "Fertilizer Plus", alias: "FertiPlus", tagline: "Maximum Yield", gstin: "09GGGGG6666G1Z1", address: "33 Growth St, Lucknow, UP", phone: "9765432109", email: "orders@fertiplus.com", invoicePrefix: "FP", bankName: "PNB", accountNumber: "400012345678", ifscCode: "PUNB0123400", stateCode: "UP" },
-    { name: "AgroMachinery Inc", alias: "AgroMach", tagline: "Tools for Toil", gstin: "03HHHHH7777H1Z2", address: "77 Machine Rd, Ludhiana, PB", phone: "9112233445", email: "service@agromach.com", invoicePrefix: "AMI", bankName: "Canara", accountNumber: "112233445566", ifscCode: "CNRB0001234", stateCode: "PB" },
-    { name: "NatureBounty", alias: "Bounty", tagline: "Nature's Best", gstin: "32IIIII8888I1Z3", address: "99 Nature Dr, Kochi, KL", phone: "9444555666", email: "info@naturebounty.com", invoicePrefix: "NB", bankName: "Union", accountNumber: "556677889900", ifscCode: "UBIN0530000", stateCode: "KL" },
-    { name: "Organic Roots", alias: "Roots", tagline: "Back to Roots", gstin: "19JJJJJ9999J1Z4", address: "11 Root Way, Kolkata, WB", phone: "9333444555", email: "contact@organicroots.com", invoicePrefix: "OR", bankName: "IndusInd", accountNumber: "223344556677", ifscCode: "INDB0000123", stateCode: "WB" }
+    { name: "AgriCorp Solutions", alias: "AgriCorp", tagline: "Farming the Future", gstin: "29AAAAA0000A1Z5", address: "123 Green Way, Bangalore, KA", phone: "9988776655", email: "info@agricorp.com", salesPrefix: "ACS", bankName: "HDFC", accountNumber: "50100012345678", ifscCode: "HDFC0001234", stateCode: "KA" },
+    { name: "FarmTech India", alias: "FarmTech", tagline: "Tech for Farmers", gstin: "29BBBBB1111B1Z6", address: "45 Tech Park, Mysore, KA", phone: "9876543210", email: "sales@farmtech.com", salesPrefix: "FTI", bankName: "SBI", accountNumber: "30001234567", ifscCode: "SBIN0001234", stateCode: "KA" },
+    { name: "GreenHarvest Ltd", alias: "Harvest", tagline: "Pure & Organic", gstin: "27CCCCC2222C1Z7", address: "88 Market St, Pune, MH", phone: "020-12345678", email: "contact@greenharvest.com", salesPrefix: "GHL", bankName: "ICICI", accountNumber: "100012345678", ifscCode: "ICIC0001234", stateCode: "MH" },
+    { name: "Rural Supplies Co", alias: "Rural", tagline: "Supplying Villages", gstin: "33DDDDD3333D1Z8", address: "12 Village Rd, Chennai, TN", phone: "9123456789", email: "support@ruralsupplies.com", salesPrefix: "RSC", bankName: "Axis", accountNumber: "91234567891234", ifscCode: "UTIB0001234", stateCode: "TN" },
+    { name: "CropCare Systems", alias: "CropCare", tagline: "Caring for Crops", gstin: "36EEEEE4444E1Z9", address: "55 Field Ave, Hyderabad, TS", phone: "9900990099", email: "hello@cropcare.com", salesPrefix: "CCS", bankName: "Kotak", accountNumber: "8877665544", ifscCode: "KKBK0001234", stateCode: "TS" },
+    { name: "SeedGro Pvt Ltd", alias: "SeedGro", tagline: "Quality Seeds", gstin: "24FFFFF5555F1Z0", address: "22 Seed Ln, Ahmedabad, GJ", phone: "9898989898", email: "sales@seedgro.com", salesPrefix: "SGL", bankName: "BoB", accountNumber: "200012345678", ifscCode: "BARB0ABCD", stateCode: "GJ" },
+    { name: "Fertilizer Plus", alias: "FertiPlus", tagline: "Maximum Yield", gstin: "09GGGGG6666G1Z1", address: "33 Growth St, Lucknow, UP", phone: "9765432109", email: "orders@fertiplus.com", salesPrefix: "FP", bankName: "PNB", accountNumber: "400012345678", ifscCode: "PUNB0123400", stateCode: "UP" },
+    { name: "AgroMachinery Inc", alias: "AgroMach", tagline: "Tools for Toil", gstin: "03HHHHH7777H1Z2", address: "77 Machine Rd, Ludhiana, PB", phone: "9112233445", email: "service@agromach.com", salesPrefix: "AMI", bankName: "Canara", accountNumber: "112233445566", ifscCode: "CNRB0001234", stateCode: "PB" },
+    { name: "NatureBounty", alias: "Bounty", tagline: "Nature's Best", gstin: "32IIIII8888I1Z3", address: "99 Nature Dr, Kochi, KL", phone: "9444555666", email: "info@naturebounty.com", salesPrefix: "NB", bankName: "Union", accountNumber: "556677889900", ifscCode: "UBIN0530000", stateCode: "KL" },
+    { name: "Organic Roots", alias: "Roots", tagline: "Back to Roots", gstin: "19JJJJJ9999J1Z4", address: "11 Root Way, Kolkata, WB", phone: "9333444555", email: "contact@organicroots.com", salesPrefix: "OR", bankName: "IndusInd", accountNumber: "223344556677", ifscCode: "INDB0000123", stateCode: "WB" }
 ];
 
 const CUSTOMERS: SeedCustomer[] = [
-    { name: "Laxmi General Store", gstin: "29LGS1234L1Z1", address: "Market Yard, Bangalore", phone: "9000100010", placeOfSupply: "Karnataka", email: "laxmi@store.com", stateCode: "KA", invoiceProductName: "HDPE GRANULES" },
-    { name: "Kisan Seva Kendra", gstin: "29KSK5678K1Z2", address: "Rural Rd, Mandya", phone: "9000200020", placeOfSupply: "Karnataka", email: "kisan@seva.com", stateCode: "KA", invoiceProductName: "LDPE PELLETS" },
-    { name: "Annapurna Traders", gstin: "27ANA4321A1Z3", address: "Main Bazaar, Solapur", phone: "9000300030", placeOfSupply: "Maharashtra", email: "annapurna@traders.com", stateCode: "MH", invoiceProductName: "PP REPRO GRANULES" },
-    { name: "Global Exports", gstin: "33GLE8765G1Z4", address: "Port Rd, Chennai", phone: "9000400040", placeOfSupply: "Tamil Nadu", email: "global@exports.com", stateCode: "TN", invoiceProductName: "LLDPE MASTERBATCH" },
-    { name: "Vinayaka Agencies", gstin: "36VNA1122V1Z5", address: "Ring Road, Warangal", phone: "9000500050", placeOfSupply: "Telangana", email: "vinayaka@agencies.com", stateCode: "TS", invoiceProductName: "PVC RESIN" },
-    { name: "Jai Hind Fertilizers", gstin: "24JHF3344J1Z6", address: "Station Rd, Surat", phone: "9000600060", placeOfSupply: "Gujarat", email: "jaihind@ferti.com", stateCode: "GJ", invoiceProductName: "NYLON CHIPS" },
-    { name: "Ganga Farmers Club", gstin: "09GFC5566G1Z7", address: "River Bank, Varanasi", phone: "9000700070", placeOfSupply: "Uttar Pradesh", email: "ganga@club.com", stateCode: "UP", invoiceProductName: "ABS PELLETS" },
-    { name: "Punjab Wheats", gstin: "03PWH7788P1Z8", address: "GT Road, Amritsar", phone: "9000800080", placeOfSupply: "Punjab", email: "punjab@wheats.com", stateCode: "PB", invoiceProductName: "HIPS GRANULES" },
-    { name: "Kerala Spices", gstin: "32KSP9900K1Z9", address: "Hill Top, Munnar", phone: "9000900090", placeOfSupply: "Kerala", email: "kerala@spices.com", stateCode: "KL", invoiceProductName: "PET FLAKES" },
-    { name: "Eastern Traders", gstin: "19EST1234E1Z0", address: "New Market, Siliguri", phone: "9000011111", placeOfSupply: "West Bengal", email: "eastern@traders.com", stateCode: "WB", invoiceProductName: "PC GRANULES" }
+    { name: "Laxmi General Store", gstin: "29LGS1234L1Z1", address: "Market Yard, Bangalore", phone: "9000100010", placeOfSupply: "Karnataka", email: "laxmi@store.com", stateCode: "KA", saleProductName: "HDPE GRANULES" },
+    { name: "Kisan Seva Kendra", gstin: "29KSK5678K1Z2", address: "Rural Rd, Mandya", phone: "9000200020", placeOfSupply: "Karnataka", email: "kisan@seva.com", stateCode: "KA", saleProductName: "LDPE PELLETS" },
+    { name: "Annapurna Traders", gstin: "27ANA4321A1Z3", address: "Main Bazaar, Solapur", phone: "9000300030", placeOfSupply: "Maharashtra", email: "annapurna@traders.com", stateCode: "MH", saleProductName: "PP REPRO GRANULES" },
+    { name: "Global Exports", gstin: "33GLE8765G1Z4", address: "Port Rd, Chennai", phone: "9000400040", placeOfSupply: "Tamil Nadu", email: "global@exports.com", stateCode: "TN", saleProductName: "LLDPE MASTERBATCH" },
+    { name: "Vinayaka Agencies", gstin: "36VNA1122V1Z5", address: "Ring Road, Warangal", phone: "9000500050", placeOfSupply: "Telangana", email: "vinayaka@agencies.com", stateCode: "TS", saleProductName: "PVC RESIN" },
+    { name: "Jai Hind Fertilizers", gstin: "24JHF3344J1Z6", address: "Station Rd, Surat", phone: "9000600060", placeOfSupply: "Gujarat", email: "jaihind@ferti.com", stateCode: "GJ", saleProductName: "NYLON CHIPS" },
+    { name: "Ganga Farmers Club", gstin: "09GFC5566G1Z7", address: "River Bank, Varanasi", phone: "9000700070", placeOfSupply: "Uttar Pradesh", email: "ganga@club.com", stateCode: "UP", saleProductName: "ABS PELLETS" },
+    { name: "Punjab Wheats", gstin: "03PWH7788P1Z8", address: "GT Road, Amritsar", phone: "9000800080", placeOfSupply: "Punjab", email: "punjab@wheats.com", stateCode: "PB", saleProductName: "HIPS GRANULES" },
+    { name: "Kerala Spices", gstin: "32KSP9900K1Z9", address: "Hill Top, Munnar", phone: "9000900090", placeOfSupply: "Kerala", email: "kerala@spices.com", stateCode: "KL", saleProductName: "PET FLAKES" },
+    { name: "Eastern Traders", gstin: "19EST1234E1Z0", address: "New Market, Siliguri", phone: "9000011111", placeOfSupply: "West Bengal", email: "eastern@traders.com", stateCode: "WB", saleProductName: "PC GRANULES" }
 ];
 
 const PRODUCTS = [
@@ -52,8 +52,8 @@ export const isDbEmpty = async () => {
     const c = await db.companies.count();
     const cu = await db.customers.count();
     const p = await db.products.count();
-    const i = await db.invoices.count();
-    return c === 0 && cu === 0 && p === 0 && i === 0;
+    const s = await db.sales.count();
+    return c === 0 && cu === 0 && p === 0 && s === 0;
 };
 
 const getRandomInt = (min: number, max: number) => {
@@ -69,7 +69,7 @@ export const seedDemoData = async () => {
         throw new Error("Database is not empty. Cannot seed data.");
     }
 
-    await db.transaction('rw', [db.companies, db.customers, db.products, db.invoices, db.invoiceVersions], async () => {
+    await db.transaction('rw', [db.companies, db.customers, db.products, db.sales, db.salesVersions], async () => {
         // 1. Add Entities
         const companiesWithIds: (SeedCompany & { id: number })[] = [];
         const customersWithIds: (SeedCustomer & { id: number })[] = [];
@@ -89,22 +89,22 @@ export const seedDemoData = async () => {
         const prodIds = await db.products.bulkAdd(PRODUCTS as Product[], { allKeys: true }) as number[];
         const loadedProds = (await db.products.bulkGet(prodIds)).filter((p): p is Product => !!p);
 
-        // 2. Prepare Mock Invoices
-        const TOTAL_INVOICES = getRandomInt(400, 500);
+        // 2. Prepare Mock Sales
+        const TOTAL_SALES = getRandomInt(400, 500);
         const startDate = new Date('2024-04-01');
         const endDate = new Date();
-        const rawInvoices: any[] = [];
+        const rawSales: any[] = [];
 
-        for (let i = 0; i < TOTAL_INVOICES; i++) {
+        for (let i = 0; i < TOTAL_SALES; i++) {
             const comp = companiesWithIds[getRandomInt(0, companiesWithIds.length - 1)];
             const cust = customersWithIds[getRandomInt(0, customersWithIds.length - 1)];
-            const invDate = getRandomDate(startDate, endDate);
+            const saleDate = getRandomDate(startDate, endDate);
 
             const isIntrastate = comp.stateCode === cust.stateCode;
             const taxType = isIntrastate ? 'CGST_SGST' : 'IGST';
 
             const numItems = getRandomInt(1, 4);
-            const items: InvoiceItem[] = [];
+            const items: SaleItem[] = [];
             let subTotal = 0;
             let totalTax = 0;
 
@@ -146,8 +146,8 @@ export const seedDemoData = async () => {
             const sumBags = items.reduce((s, it) => s + (Number(it.numberOfBags)||0), 0);
             const sumQty = items.reduce((s, it) => s + (Number(it.quantity)||0), 0);
 
-            rawInvoices.push({
-                date: invDate,
+            rawSales.push({
+                date: saleDate,
                 comp,
                 cust,
                 items,
@@ -164,19 +164,18 @@ export const seedDemoData = async () => {
                     quantity: sumQty,
                     taxAmount: totalTax,
                     totalAmount: subTotal,
-                    invoiceProductName: cust.invoiceProductName || 'RAW PLASTIC MATERIALS'
+                    saleProductName: cust.saleProductName || 'RAW PLASTIC MATERIALS'
                 }
             });
         }
 
         // 3. Chronological Numbering & Insertion
-        rawInvoices.sort((a, b) => a.date.getTime() - b.date.getTime());
+        rawSales.sort((a, b) => a.date.getTime() - b.date.getTime());
 
         // Tracking counters per Fiscal Year
-        // { year: { total: X, companies: { compId: Y } } }
         const audit: Record<number, { global: number, companies: Record<number, number> }> = {};
 
-        for (const data of rawInvoices) {
+        for (const data of rawSales) {
             const fiscalYear = getFiscalYear(data.date);
             
             if (!audit[fiscalYear]) {
@@ -193,7 +192,7 @@ export const seedDemoData = async () => {
 
             const masterId = formatMasterId(
                 fiscalYear, 
-                data.comp.invoicePrefix, 
+                data.comp.salesPrefix, 
                 yearData.companies[data.comp.id], 
                 yearData.global
             );
@@ -202,7 +201,7 @@ export const seedDemoData = async () => {
             const { stateCode: _s1, ...seller } = data.comp;
             const { stateCode: _s2, ...buyer } = data.cust;
 
-            const invId = await db.invoices.add({
+            const saleId = await db.sales.add({
                 salesNumber: masterId,
                 date: data.date,
                 customerId: data.cust.id,
@@ -210,8 +209,8 @@ export const seedDemoData = async () => {
                 status: 'final'
             });
 
-            const version: InvoiceVersion = {
-                invoiceId: invId as number,
+            const version: SaleVersion = {
+                saleId: saleId as number,
                 version: 1,
                 date: data.date,
                 items: data.items,
@@ -227,8 +226,8 @@ export const seedDemoData = async () => {
                 status: 'final'
             };
 
-            const verId = await db.invoiceVersions.add(version);
-            await db.invoices.update(invId, { currentVersionId: verId as number });
+            const verId = await db.salesVersions.add(version);
+            await db.sales.update(saleId, { currentVersionId: verId as number });
         }
     });
 };

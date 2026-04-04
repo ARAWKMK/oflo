@@ -1,6 +1,6 @@
-import { db, type Invoice, type InvoiceVersion, type InvoiceItem } from '../db/db';
+import { db, type Sale, type SaleVersion, type SaleItem } from '../db/db';
 
-export type GroupOption = 'day' | 'week' | 'month' | 'financialYear' | 'invoice' | 'customer' | 'seller' | 'product' | 'producer' | 'alias';
+export type GroupOption = 'day' | 'week' | 'month' | 'financialYear' | 'sale' | 'customer' | 'seller' | 'product' | 'producer' | 'alias';
 export type MetricOption = 'totalAmount' | 'totalBags' | 'totalTax' | 'count' | 'quantity' | 'taxableValue';
 
 export interface ReportFilter {
@@ -31,6 +31,7 @@ export interface ReportRow {
     quantity: number;
     // Dimension Info
     producerName?: string;
+    sortKey: string;
     ids: number[];
 }
 
@@ -55,20 +56,20 @@ export const generateAdvancedReport = async (
     options: AdvancedReportOptions
 ): Promise<{ tableData: ReportRow[]; chartData: ChartResult }> => {
     // 1. Fetch & Filter
-    const allInvoices = await db.invoices.toArray();
-    const versionIds = allInvoices.map(i => i.currentVersionId).filter(id => id !== undefined) as number[];
-    const allVersions = await db.invoiceVersions.bulkGet(versionIds);
-    const versionMap = new Map<number, InvoiceVersion>();
+    const allSales = await db.sales.toArray();
+    const versionIds = allSales.map(i => i.currentVersionId).filter(id => id !== undefined) as number[];
+    const allVersions = await db.salesVersions.bulkGet(versionIds);
+    const versionMap = new Map<number, SaleVersion>();
     allVersions.forEach(v => v && versionMap.set(v.id!, v));
 
-    let processed: { inv: Invoice; ver: InvoiceVersion; items: InvoiceItem[] }[] = [];
+    let processed: { sale: Sale; ver: SaleVersion; items: SaleItem[] }[] = [];
 
-    allInvoices.forEach(inv => {
-        const ver = versionMap.get(inv.currentVersionId!);
+    allSales.forEach(sale => {
+        const ver = versionMap.get(sale.currentVersionId!);
         if (!ver) return;
 
         // Date Filter
-        const d = new Date(inv.date);
+        const d = new Date(sale.date);
         if (options.filters.dateStart && d < options.filters.dateStart) return;
         if (options.filters.dateEnd) {
             const end = new Date(options.filters.dateEnd);
@@ -77,7 +78,7 @@ export const generateAdvancedReport = async (
         }
 
         // Filters
-        if (options.filters.customerId?.length && !options.filters.customerId.includes(inv.customerId)) return;
+        if (options.filters.customerId?.length && !options.filters.customerId.includes(sale.customerId)) return;
         if (options.filters.sellerId?.length && ver.sellerDetails.id && !options.filters.sellerId.includes(ver.sellerDetails.id)) return;
 
         let items = ver.items;
@@ -86,7 +87,7 @@ export const generateAdvancedReport = async (
             if (items.length === 0) return;
         }
 
-        processed.push({ inv, ver, items });
+        processed.push({ sale, ver, items });
     });
 
     // 2. Build Aggregation Maps
@@ -94,30 +95,33 @@ export const generateAdvancedReport = async (
     const chartSeriesMap = new Map<string, Map<string, number>>();
 
     // Helper: Keys
-    const getKey = (dim: GroupOption, inv: Invoice, ver: InvoiceVersion, item?: InvoiceItem): string => {
-        const d = new Date(inv.date);
+    const getKeys = (dim: GroupOption, sale: Sale, ver: SaleVersion, item?: SaleItem): { label: string; sort: string } => {
+        const d = new Date(sale.date);
+        const y = d.getFullYear();
+        const m = (d.getMonth() + 1).toString().padStart(2, '0');
+        const date = d.getDate().toString().padStart(2, '0');
 
-        if (dim === 'day') return d.toLocaleDateString('en-GB');
-        if (dim === 'month') return d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+        if (dim === 'day') return { label: d.toLocaleDateString('en-GB'), sort: `${y}${m}${date}` };
+        if (dim === 'month') return { label: d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }), sort: `${y}${m}` };
         if (dim === 'financialYear') {
             const month = d.getMonth(); // 0-11
             const year = d.getFullYear();
             const fyStart = month >= 3 ? year : year - 1;
-            return `FY ${fyStart}-${(fyStart + 1).toString().slice(-2)}`;
+            return { label: `FY ${fyStart}-${(fyStart + 1).toString().slice(-2)}`, sort: `${fyStart}` };
         }
         if (dim === 'week') {
             const day = d.getDay();
             const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-            const mon = new Date(d.setDate(diff));
-            return 'Wk ' + mon.toLocaleDateString('en-GB');
+            const mon = new Date(new Date(sale.date).setDate(diff));
+            return { label: 'Wk ' + mon.toLocaleDateString('en-GB'), sort: `${mon.getFullYear()}${(mon.getMonth()+1).toString().padStart(2,'0')}${mon.getDate().toString().padStart(2,'0')}` };
         }
-        if (dim === 'invoice') return `Inv #${inv.salesNumber || (inv as any).invoiceNumber}`;
-        if (dim === 'customer') return ver.buyerDetails.name;
-        if (dim === 'seller') return ver.sellerDetails.name;
-        if (dim === 'product' && item) return item.name;
-        if (dim === 'producer' && item) return item.producerName || 'Unknown';
-        if (dim === 'alias' && item) return item.producerAlias || item.producerName || 'Unknown';
-        return 'Total';
+        if (dim === 'sale') return { label: `Sale #${sale.salesNumber}`, sort: sale.salesNumber };
+        if (dim === 'customer') return { label: ver.buyerDetails.name, sort: ver.buyerDetails.name };
+        if (dim === 'seller') return { label: ver.sellerDetails.name, sort: ver.sellerDetails.name };
+        if (dim === 'product' && item) return { label: item.name, sort: item.name };
+        if (dim === 'producer' && item) return { label: item.producerName || 'Unknown', sort: item.producerName || 'Unknown' };
+        if (dim === 'alias' && item) return { label: item.producerAlias || item.producerName || 'Unknown', sort: item.producerAlias || item.producerName || 'Unknown' };
+        return { label: 'Total', sort: '0' };
     };
 
     // Helper: Add to Row
@@ -131,14 +135,15 @@ export const generateAdvancedReport = async (
     };
 
     // 3. Iterate
-    processed.forEach(({ inv, ver, items }) => {
+    processed.forEach(({ sale, ver, items }) => {
         const isItemLevelX = options.xAxis === 'product' || options.xAxis === 'producer' || options.xAxis === 'alias';
         const isItemLevelCompare = options.compareBy === 'product' || options.compareBy === 'producer' || options.compareBy === 'alias';
 
         if (isItemLevelX || isItemLevelCompare) {
             items.forEach(item => {
-                const xKey = getKey(options.xAxis, inv, ver, item);
-                const compareKey = options.compareBy !== 'none' ? getKey(options.compareBy, inv, ver, item) : 'All';
+                const keys = getKeys(options.xAxis, sale, ver, item);
+                const xKey = keys.label;
+                const compareKey = options.compareBy !== 'none' ? getKeys(options.compareBy, sale, ver, item).label : 'All';
 
                 const iAmt = item.quantity * item.unitPrice;
                 const iTax = (iAmt * item.taxRate) / 100;
@@ -149,6 +154,7 @@ export const generateAdvancedReport = async (
                 if (!tableMap.has(xKey)) {
                     tableMap.set(xKey, {
                         label: xKey,
+                        sortKey: keys.sort,
                         count: 0, totalAmount: 0, totalTax: 0, taxableValue: 0, totalBags: 0, quantity: 0, ids: []
                     });
                 }
@@ -160,7 +166,6 @@ export const generateAdvancedReport = async (
                     if (metricKey === 'totalAmount') val = iTotal;
                     if (metricKey === 'totalBags') val = iBags;
                     if (metricKey === 'quantity') val = iQty;
-                    // others ignored in compare mode for now
 
                     if (!chartSeriesMap.has(compareKey)) chartSeriesMap.set(compareKey, new Map());
                     const series = chartSeriesMap.get(compareKey)!;
@@ -168,8 +173,9 @@ export const generateAdvancedReport = async (
                 }
             });
         } else {
-            const xKey = getKey(options.xAxis, inv, ver);
-            const compareKey = options.compareBy !== 'none' ? getKey(options.compareBy, inv, ver) : 'All';
+            const keys = getKeys(options.xAxis, sale, ver);
+            const xKey = keys.label;
+            const compareKey = options.compareBy !== 'none' ? getKeys(options.compareBy, sale, ver).label : 'All';
 
             const bags = items.reduce((a, b) => a + (Number(b.numberOfBags) || 0), 0);
             const qty = items.reduce((a, b) => a + b.quantity, 0);
@@ -177,15 +183,16 @@ export const generateAdvancedReport = async (
             if (!tableMap.has(xKey)) {
                 tableMap.set(xKey, {
                     label: xKey,
+                    sortKey: keys.sort,
                     count: 0, totalAmount: 0, totalTax: 0, taxableValue: 0, totalBags: 0, quantity: 0, ids: []
                 });
             }
-            addToRow(tableMap.get(xKey)!, inv.grandTotal, ver.totalTax, ver.subTotal, bags, qty, 1);
+            addToRow(tableMap.get(xKey)!, sale.grandTotal, ver.totalTax, ver.subTotal, bags, qty, 1);
 
             if (options.compareBy !== 'none') {
                 const metricKey = options.yAxis[0];
                 let val = 0;
-                if (metricKey === 'totalAmount') val = inv.grandTotal;
+                if (metricKey === 'totalAmount') val = sale.grandTotal;
                 else if (metricKey === 'totalBags') val = bags;
                 else if (metricKey === 'quantity') val = qty;
 
@@ -197,12 +204,18 @@ export const generateAdvancedReport = async (
     });
 
     // 4. Finalize Data
-    let labels = Array.from(tableMap.keys());
-    if (options.xAxis === 'day' || options.xAxis === 'month') {
-        labels.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-    }
+    let tableRows = Array.from(tableMap.values());
+    
+    // Sort logic
+    tableRows.sort((a, b) => {
+        if (options.xAxis === 'day' || options.xAxis === 'month' || options.xAxis === 'week' || options.xAxis === 'financialYear') {
+             return a.sortKey.localeCompare(b.sortKey);
+        }
+        return a.label.localeCompare(b.label);
+    });
 
-    const tableData = labels.map(l => tableMap.get(l)!);
+    const labels = tableRows.map(r => r.label);
+    const tableData = tableRows;
 
     // Chart Data
     const datasets: ChartDataset[] = [];
@@ -214,7 +227,7 @@ export const generateAdvancedReport = async (
             const data = labels.map(l => dataMap.get(l) ?? null);
             datasets.push({
                 label: seriesLabel,
-                data: data as any, // Cast to any to avoid type complaints if Typescript expects numbers
+                data: data as any,
                 borderColor: colors[cIdx % colors.length],
                 backgroundColor: colors[cIdx % colors.length],
             });
@@ -227,7 +240,7 @@ export const generateAdvancedReport = async (
             if (metric === 'totalAmount') label = 'Revenue';
             if (metric === 'totalBags') label = 'Bags';
             if (metric === 'quantity') label = 'Qty';
-            if (metric === 'count') label = 'Invoices';
+            if (metric === 'count') label = 'Sales';
             if (metric === 'taxableValue') label = 'Taxable';
 
             datasets.push({
@@ -244,17 +257,9 @@ export const generateAdvancedReport = async (
     if (options.chartType === 'cumulativeLine') {
         datasets.forEach(ds => {
             let runningTotal = 0;
-            // Map data to running total
             ds.data = ds.data.map((val: any) => {
                 const currentVal = Number(val) || 0;
                 runningTotal += currentVal;
-                // If there's no change (currentVal is 0), don't plot a point (return null)
-                // UNLESS it's the very first point and it's 0 (optional, but cleaner generally to hide)
-                // But wait, if we return null, the running total isn't visualized until the next jump.
-                // With stepped: 'after', we need the point BEFORE the jump to stay flat?
-                // Actually, if we use null, spanGaps will connect the previous point to next point.
-                // If stepped: 'after', it draws flat from Prev -> Next X.
-                // So returning null for 0-change days is CORRECT for stepped chart to skip intermediate dots.
                 if (currentVal === 0) return null;
                 return runningTotal;
             });

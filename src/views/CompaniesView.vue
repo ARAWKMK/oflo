@@ -21,7 +21,7 @@ onMounted(refresh);
 
 const openNew = () => {
     formData.value = { 
-        invoicePrefix: 'INV', 
+        salesPrefix: 'SAL', 
         name: '', alias: '', gstin: '', address: '', phone: '', email: '',
         tagline: '', bankName: '', accountNumber: '', ifscCode: ''
     };
@@ -36,11 +36,11 @@ const edit = (company: Company) => {
 };
 
 // v5: Enforce Alphanumeric Prefix
-watch(() => formData.value.invoicePrefix, (newVal) => {
+watch(() => formData.value.salesPrefix, (newVal) => {
     if (newVal) {
         const cleaned = newVal.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
         if (cleaned !== newVal) {
-            formData.value.invoicePrefix = cleaned;
+            formData.value.salesPrefix = cleaned;
         }
     }
 });
@@ -110,9 +110,9 @@ const save = async () => {
             <p class="tagline" v-if="c.tagline">{{ c.tagline }}</p>
             
             <div class="details">
-                <div class="info-row flex-row" v-if="c.invoicePrefix">
+                <div class="info-row flex-row" v-if="c.salesPrefix">
                     <span class="label">Prefix:</span>
-                    <span class="value">{{ c.invoicePrefix }}</span>
+                    <span class="value">{{ c.salesPrefix }}</span>
                 </div>
                 <div class="info-row flex-row" v-if="c.gstin">
                     <span class="label">GSTIN:</span>
@@ -155,7 +155,7 @@ const save = async () => {
                 <BaseInput label="Company Alias (Nick Name)" v-model="formData.alias!" placeholder="Acme" />
                 <BaseInput label="Tagline" v-model="formData.tagline!" placeholder="Solutions for you" />
                 <BaseInput label="GSTIN" v-model="formData.gstin!" placeholder="29ABCDE1234F1Z5" />
-                <BaseInput label="Invoice Prefix" v-model="formData.invoicePrefix!" placeholder="INV" />
+                <BaseInput label="Sales Prefix" v-model="formData.salesPrefix!" placeholder="SAL" />
                 
                 <BaseInput label="Phone" v-model="formData.phone!" placeholder="+91..." />
                 <BaseInput label="Email" v-model="formData.email!" type="email" />

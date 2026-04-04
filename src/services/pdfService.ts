@@ -31,7 +31,7 @@ const getPDFSettings = async () => {
         fontCompanyItalic: settings.pdfFontCompanyItalic === true,
         fontBody: settings.pdfFontBody || 'helvetica',
         customFonts: fonts || [],
-        pageSizeInvoice: settings.pdfPageSizeInvoice || 'a4',
+        pageSizeSale: settings.pdfPageSizeSale || 'a4',
         pageSizeChallan: settings.pdfPageSizeChallan || 'a4',
         quality: settings.pdfQuality || 'standard'
     };
@@ -46,8 +46,8 @@ const getPageFormat = (size: string) => {
     }
 };
 
-const setupDoc = (settings: any, type: 'invoice' | 'challan') => {
-    const format = getPageFormat(type === 'invoice' ? settings.pageSizeInvoice : settings.pageSizeChallan);
+const setupDoc = (settings: any, type: 'sale' | 'challan') => {
+    const format = getPageFormat(type === 'sale' ? settings.pageSizeSale : settings.pageSizeChallan);
     const doc = new jsPDF({
         format,
         unit: 'mm',
@@ -72,7 +72,7 @@ const setupDoc = (settings: any, type: 'invoice' | 'challan') => {
     return doc;
 };
 
-const drawInvoicePage = (doc: any, data: any, settings: any) => {
+const drawSalePage = (doc: any, data: any, settings: any) => {
     const setFont = (type: 'company' | 'body', style: 'normal' | 'bold' | 'italic') => {
         const fontName = type === 'company' ? settings.fontCompany : settings.fontBody;
         doc.setFont(fontName, style);
@@ -247,9 +247,9 @@ const drawInvoicePage = (doc: any, data: any, settings: any) => {
         rightCursorY += lineHeight * valLines.length;
     };
 
-    const fullInvNo = data.salesNumber || data.invoiceNumber || data.invoice_number || '-';
-    const displayInvNo = fullInvNo.includes(':') ? fullInvNo.split(':')[0] : fullInvNo;
-    drawMeta('Invoice No.', displayInvNo);
+    const fullSaleNo = data.salesNumber || data.invoiceNumber || data.invoice_number || '-';
+    const displaySaleNo = fullSaleNo.includes(':') ? fullSaleNo.split(':')[0] : fullSaleNo;
+    drawMeta('Invoice No.', displaySaleNo);
     drawMeta('Date', data.date ? new Date(data.date).toLocaleDateString('en-GB') : '-');
     if (data.vehicleNumber) drawMeta('Vehicle No', data.vehicleNumber);
 
@@ -676,9 +676,9 @@ const drawInvoicePage = (doc: any, data: any, settings: any) => {
     return doc;
 };
 
-export const generateInvoicePDF = (data: any, settings: any) => {
-    const doc = setupDoc(settings, 'invoice');
-    drawInvoicePage(doc, data, settings);
+export const generateSalePDF = (data: any, settings: any) => {
+    const doc = setupDoc(settings, 'sale');
+    drawSalePage(doc, data, settings);
     return doc;
 };
 
@@ -798,7 +798,7 @@ const drawChallanPage = (doc: any, data: any, settings: any, type: 'Internal' | 
     doc.setDrawColor(0);
     doc.setLineWidth(0.3);
     doc.roundedRect(marginLeft, box1Start, contentWidth, box1Height, 3, 3, 'S');
-    currentY = box1Start + box1Height + 8; // Match Invoice Gap (8mm)
+    currentY = box1Start + box1Height + 8; // Match Sale Gap (8mm)
 
     // Box 2
     const box2Start = currentY;
@@ -848,11 +848,11 @@ const drawChallanPage = (doc: any, data: any, settings: any, type: 'Internal' | 
         box2Y += lineHeight;
     }
 
-    // Tight Height Logic (Match Invoice)
+    // Tight Height Logic (Match Sale)
     const tightBox2Y = box2Y - (settings.regular * ptToMm * 0.6);
     const box2H = (tightBox2Y - box2Start);
     doc.roundedRect(marginLeft, box2Start, contentWidth, box2H, 3, 3, 'S');
-    currentY = box2Start + box2H + 2; // Match Invoice Footer Gap (2mm)
+    currentY = box2Start + box2H + 2; // Match Sale Footer Gap (2mm)
 
     // --- TABLE ITEMS ---
     const bodyFont = settings.fontBody as string;
@@ -1138,16 +1138,16 @@ export const generateChallanPDF = (data: any, settings: any, type: 'Internal' | 
 };
 
 export const generateCustomPDF = (data: any, counts: any, settings: any) => {
-    // Custom doc setup: we use settings.pageSizeInvoice as the default base
-    const doc = setupDoc(settings, 'invoice');
+    // Custom doc setup: we use settings.pageSizeSale as the default base
+    const doc = setupDoc(settings, 'sale');
     let firstPage = true;
 
-    // 1. Invoices
-    for (let i = 0; i < (counts.invoice || 0); i++) {
+    // 1. Sales
+    for (let i = 0; i < (counts.sale || 0); i++) {
         if (!firstPage) {
-            doc.addPage(getPageFormat(settings.pageSizeInvoice));
+            doc.addPage(getPageFormat(settings.pageSizeSale));
         }
-        drawInvoicePage(doc, data, settings);
+        drawSalePage(doc, data, settings);
         firstPage = false;
     }
 
@@ -1171,16 +1171,17 @@ export const generateCustomPDF = (data: any, counts: any, settings: any) => {
 
     return doc;
 };
-export const downloadInvoicePDF = async (invoiceData: any) => {
+
+export const downloadSalePDF = async (saleData: any) => {
     const settings = await getPDFSettings();
-    const doc = generateInvoicePDF(invoiceData, settings);
-    const fileName = `Invoice_${invoiceData.salesNumber || invoiceData.invoiceNumber}.pdf`;
+    const doc = generateSalePDF(saleData, settings);
+    const fileName = `Sale_${saleData.salesNumber || saleData.invoiceNumber}.pdf`;
     doc.save(fileName);
 };
 
-export const printInvoicePDF = async (invoiceData: any) => {
+export const printSalePDF = async (saleData: any) => {
     const settings = await getPDFSettings();
-    const doc = generateInvoicePDF(invoiceData, settings);
+    const doc = generateSalePDF(saleData, settings);
     doc.autoPrint();
     const blob = doc.output('bloburl');
     window.open(blob, '_blank');

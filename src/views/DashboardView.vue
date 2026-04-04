@@ -11,14 +11,14 @@ const counts = ref({
     companies: 0,
     customers: 0,
     products: 0,
-    invoices: 0
+    sales: 0
 });
 
 onMounted(async () => {
     counts.value.companies = await db.companies.count();
     counts.value.customers = await db.customers.count();
     counts.value.products = await db.products.count();
-    counts.value.invoices = await db.invoices.count();
+    counts.value.sales = await db.sales.count();
 });
 
 const navigateTo = (path: string) => {
@@ -49,7 +49,7 @@ const navigateTo = (path: string) => {
         <div class="stat-card card clickable" @click="navigateTo('/sales')">
             <div class="card-icon"><FileText :size="24" /></div>
             <h3>Sales</h3>
-            <div class="count">{{ counts.invoices }}</div>
+            <div class="count">{{ counts.sales }}</div>
         </div>
         
         <!-- New Sections -->

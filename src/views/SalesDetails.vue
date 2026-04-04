@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { db, type Invoice, type InvoiceVersion } from '../db/db';
+import { db, type Sale, type SaleVersion } from '../db/db';
 import PageHeader from '../components/ui/PageHeader.vue';
 import BaseButton from '../components/ui/BaseButton.vue';
 import { Clock, Edit, CheckCircle, Printer, Download, Truck, FileText, ChevronDown, Plus, Minus, Settings } from 'lucide-vue-next';
 import { numberToWords } from '../utils/formatters';
 import { 
-    downloadInvoicePDF, printInvoicePDF, 
+    downloadSalePDF, printSalePDF, 
     downloadChallanPDF, printChallanPDF,
     downloadCustomPDF, printCustomPDF 
 } from '../services/pdfService';
@@ -18,8 +18,8 @@ const route = useRoute();
 const router = useRouter();
 
 // State
-const invoice = ref<Invoice | undefined>(undefined);
-const versions = ref<InvoiceVersion[]>([]);
+const sale = ref<Sale | undefined>(undefined);
+const versions = ref<SaleVersion[]>([]);
 const selectedVersionId = ref<number | undefined>(undefined);
 const loading = ref(true);
 
@@ -29,16 +29,16 @@ const currentVersion = computed(() => {
     if (selectedVersionId.value) {
         return versions.value.find(v => v.id === selectedVersionId.value);
     }
-    // Default to invoice's current version
-    if (invoice.value?.currentVersionId) {
-        return versions.value.find(v => v.id === invoice.value!.currentVersionId);
+    // Default to sale's current version
+    if (sale.value?.currentVersionId) {
+        return versions.value.find(v => v.id === sale.value!.currentVersionId);
     }
     return versions.value[0]; // Fallback
 });
 
 const isLatestActive = computed(() => {
-    if (!invoice.value || !currentVersion.value) return false;
-    return invoice.value.currentVersionId === currentVersion.value.id;
+    if (!sale.value || !currentVersion.value) return false;
+    return sale.value.currentVersionId === currentVersion.value.id;
 });
 
 const amountInWords = computed(() => {
@@ -49,18 +49,18 @@ const amountInWords = computed(() => {
 const loadData = async () => {
     loading.value = true;
     try {
-        const invNo = route.params.invoiceNo as string;
+        const invNo = route.params.salesNumber as string;
         if (!invNo) return;
         
         // v5 Deep-Link Guard: If the URL has -vX, strip and select that version
         const rootId = invNo.split('-v')[0];
         const vSuffix = invNo.includes('-v') ? invNo.split('-v')[1] : null;
 
-        invoice.value = await db.invoices.where('salesNumber').equals(rootId).first();
+        sale.value = await db.sales.where('salesNumber').equals(rootId).first();
 
-        if (invoice.value) {
-            const id = invoice.value.id!;
-            const vers = await db.invoiceVersions.where('invoiceId').equals(id).toArray();
+        if (sale.value) {
+            const id = sale.value.id!;
+            const vers = await db.salesVersions.where('saleId').equals(id).toArray();
             versions.value = vers.sort((a, b) => b.version - a.version);
 
             // Version Selection Logic: Query > Suffix > Current
@@ -69,13 +69,13 @@ const loadData = async () => {
                 selectedVersionId.value = qVid;
             } else if (vSuffix) {
                 const targetVer = vers.find(v => v.version === parseInt(vSuffix, 10));
-                selectedVersionId.value = targetVer ? targetVer.id : invoice.value.currentVersionId;
+                selectedVersionId.value = targetVer ? targetVer.id : sale.value.currentVersionId;
             } else {
-                selectedVersionId.value = invoice.value.currentVersionId;
+                selectedVersionId.value = sale.value.currentVersionId;
             }
         }
     } catch (e) {
-        console.error("Error loading invoice details", e);
+        console.error("Error loading sale details", e);
     } finally {
         loading.value = false;
     }
@@ -84,7 +84,7 @@ const loadData = async () => {
 onMounted(loadData);
 
 // Watchers
-watch(() => route.params.invoiceNo, (newVal) => {
+watch(() => route.params.salesNumber, (newVal) => {
     if (newVal) loadData();
 });
 
@@ -96,21 +96,21 @@ watch(() => route.query.versionId, (newVid) => {
 const setAsActive = async () => {
     // console.log("Restore: Initiated");
     
-    if (!invoice.value || !currentVersion.value || !invoice.value.id) {
-        // console.error("Restore: Error - Missing invoice ID or current version");
+    if (!sale.value || !currentVersion.value || !sale.value.id) {
+        // console.error("Restore: Error - Missing sale ID or current version");
         return;
     }
     
     loading.value = true;
     try {
-        const invId = invoice.value.id; 
+        const invId = sale.value.id; 
         const curVerData = JSON.parse(JSON.stringify(currentVersion.value)); 
 
-        const newId = await db.transaction('rw', db.invoices, db.invoiceVersions, async () => {
+        const newId = await db.transaction('rw', db.sales, db.salesVersions, async () => {
             // console.log("Restore: Transaction started");
             
-            const allVersions = await db.invoiceVersions
-                .where('invoiceId')
+            const allVersions = await db.salesVersions
+                .where('saleId')
                 .equals(invId)
                 .toArray();
                 
@@ -120,10 +120,10 @@ const setAsActive = async () => {
             const nextVersion = maxVer + 1;
             // console.log(`Restore: Version computed: ${nextVersion}`);
 
-            const newRef = `${invoice.value!.salesNumber}-v${nextVersion}`;
+            const newRef = `${sale.value!.salesNumber}-v${nextVersion}`;
 
-            const newVersion: InvoiceVersion = {
-                invoiceId: invId,
+            const newVersion: SaleVersion = {
+                saleId: invId,
                 version: nextVersion,
                 date: new Date(),
                 items: curVerData.items,
@@ -137,13 +137,14 @@ const setAsActive = async () => {
                 taxType: curVerData.taxType || 'IGST',
                 roundOff: curVerData.roundOff || 0,
                 vehicleNumber: curVerData.vehicleNumber,
+                status: 'final',
                 createdAt: new Date()
             };
 
-            const addedId = await db.invoiceVersions.add(newVersion);
+            const addedId = await db.salesVersions.add(newVersion);
             // console.log(`Restore: Version added (ID: ${addedId})`);
 
-            await db.invoices.update(invId, { 
+            await db.sales.update(invId, { 
                 currentVersionId: Number(addedId),
                 grandTotal: newVersion.grandTotal,
                 date: newVersion.date
@@ -181,7 +182,7 @@ const setAsActive = async () => {
 const goToEdit = () => {
     if (!currentVersion.value) return;
     router.push({
-        path: `/sales/edit/${invoice.value?.salesNumber}`,
+        path: `/sales/edit/${sale.value?.salesNumber}`,
         query: { versionId: currentVersion.value.id }
     });
 };
@@ -191,7 +192,7 @@ const showDownloadMenu = ref(false);
 const showCustomMenu = ref(false);
 
 const customCounts = ref({
-    invoice: 1,
+    sale: 1,
     ext: 1,
     int: 1
 });
@@ -207,28 +208,28 @@ const adjustCount = (type: keyof typeof customCounts.value, delta: number) => {
     }
 };
 
-const handlePrintAction = (type: 'invoice' | 'ext' | 'int') => {
+const handlePrintAction = (type: 'sale' | 'ext' | 'int') => {
     showPrintMenu.value = false;
     if (!currentVersion.value) return;
-    const data = { ...currentVersion.value, salesNumber: invoice.value?.salesNumber };
+    const data = { ...currentVersion.value, salesNumber: sale.value?.salesNumber };
     
-    if (type === 'invoice') printInvoicePDF(data);
+    if (type === 'sale') printSalePDF(data);
     else printChallanPDF(data, type === 'ext' ? 'External' : 'Internal');
 };
 
-const handleDownloadAction = (type: 'invoice' | 'ext' | 'int') => {
+const handleDownloadAction = (type: 'sale' | 'ext' | 'int') => {
     showDownloadMenu.value = false;
     if (!currentVersion.value) return;
-    const data = { ...currentVersion.value, salesNumber: invoice.value?.salesNumber };
+    const data = { ...currentVersion.value, salesNumber: sale.value?.salesNumber };
     
-    if (type === 'invoice') downloadInvoicePDF(data);
+    if (type === 'sale') downloadSalePDF(data);
     else downloadChallanPDF(data, type === 'ext' ? 'External' : 'Internal');
 };
 
 const handleCustomAction = (action: 'print' | 'download') => {
     showCustomMenu.value = false;
     if (!currentVersion.value) return;
-    const data = { ...currentVersion.value, salesNumber: invoice.value?.salesNumber };
+    const data = { ...currentVersion.value, salesNumber: sale.value?.salesNumber };
     
     if (action === 'print') printCustomPDF(data, { ...customCounts.value });
     else downloadCustomPDF(data, { ...customCounts.value });
@@ -243,14 +244,14 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
 </script>
 
 <template>
-<div v-if="!loading && invoice" class="view-wrapper">
-    <PageHeader :title="`Sale ${invoice.salesNumber}${invoice.globalSalesNo ? ' : ' + invoice.globalSalesNo : ''}`" :showBack="true" backUrl="/sales">
+<div v-if="!loading && sale" class="view-wrapper">
+    <PageHeader :title="`Sale ${sale.salesNumber}${sale.globalSalesNo ? ' : ' + sale.globalSalesNo : ''}`" :showBack="true" backUrl="/sales">
         <template #title>
              <div class="header-title-split">
                 <span>Sale</span>
-                <span class="header-ref-no" style="margin-left: 0.5rem;">{{ invoice.salesNumber }}{{ invoice.globalSalesNo ? ' : ' + invoice.globalSalesNo : '' }}</span>
-                <span class="view-status-badge" :class="invoice.status === 'draft' ? 's-draft' : 's-final'">
-                    {{ invoice.status === 'draft' ? 'DRAFT' : 'FINAL' }}
+                <span class="header-ref-no" style="margin-left: 0.5rem;">{{ sale.salesNumber }}{{ sale.globalSalesNo ? ' : ' + sale.globalSalesNo : '' }}</span>
+                <span class="view-status-badge" :class="sale.status === 'draft' ? 's-draft' : 's-final'">
+                    {{ sale.status === 'draft' ? 'DRAFT' : 'FINAL' }}
                 </span>
              </div>
         </template>
@@ -265,11 +266,11 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                     </button>
                     <div v-if="showCustomMenu" class="dropdown-menu custom-pdf-menu">
                         <div class="custom-row">
-                            <div class="row-label"><FileText :size="16" /> Invoice</div>
+                            <div class="row-label"><FileText :size="16" /> Sale</div>
                             <div class="row-controls">
-                                <button @click="adjustCount('invoice', -1)" class="count-btn"><Minus :size="14" /></button>
-                                <span class="count-val">{{ customCounts.invoice }}</span>
-                                <button @click="adjustCount('invoice', 1)" class="count-btn"><Plus :size="14" /></button>
+                                <button @click="adjustCount('sale', -1)" class="count-btn"><Minus :size="14" /></button>
+                                <span class="count-val">{{ customCounts.sale }}</span>
+                                <button @click="adjustCount('sale', 1)" class="count-btn"><Plus :size="14" /></button>
                             </div>
                         </div>
                         <div class="custom-row">
@@ -311,8 +312,8 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                             <ChevronDown :size="14" style="margin-left: 4px; opacity: 0.7;" />
                         </button>
                         <div v-if="showPrintMenu" class="dropdown-menu">
-                            <button @click="handlePrintAction('invoice')" class="dropdown-item">
-                                <FileText :size="16" /> Invoice
+                            <button @click="handlePrintAction('sale')" class="dropdown-item">
+                                <FileText :size="16" /> Sale
                             </button>
                             <button @click="handlePrintAction('ext')" class="dropdown-item">
                                 <Truck :size="16" /> Delivery Challan
@@ -331,8 +332,8 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                             <ChevronDown :size="14" style="margin-left: 4px; opacity: 0.7;" />
                         </button>
                         <div v-if="showDownloadMenu" class="dropdown-menu">
-                            <button @click="handleDownloadAction('invoice')" class="dropdown-item">
-                                <FileText :size="16" /> Invoice
+                            <button @click="handleDownloadAction('sale')" class="dropdown-item">
+                                <FileText :size="16" /> Sale
                             </button>
                             <button @click="handleDownloadAction('ext')" class="dropdown-item">
                                 <Truck :size="16" /> Delivery Challan
@@ -371,12 +372,12 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                         v-for="ver in versions" 
                         :key="ver.id"
                         class="version-item"
-                        :class="{ active: ver.id === currentVersion.id, current: ver.id === invoice.currentVersionId }"
+                        :class="{ active: ver.id === currentVersion.id, current: ver.id === sale.currentVersionId }"
                         @click="selectedVersionId = ver.id"
                     >
                         <div class="v-header">
                             <span class="v-ref">{{ ver.salesNumber || (ver as any).referenceNumber || 'v' + ver.version }}</span>
-                            <span v-if="ver.id === invoice.currentVersionId" class="badge-current">Active</span>
+                            <span v-if="ver.id === sale.currentVersionId" class="badge-current">Active</span>
                         </div>
                         <div class="v-date">{{ formatDate(ver.date) }}</div>
                         <div class="v-total">{{ formatCurrency(ver.grandTotal) }}</div>
@@ -385,15 +386,15 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
             </aside>
 
             <!-- Main Content: Strict Layout -->
-            <main class="invoice-content">
+            <main class="sale-content">
                 <!-- Alert if viewing old version -->
                 <div v-if="!isLatestActive" class="version-alert">
                     <Clock :size="16" />
                     <span>Viewing historical version <strong>{{ currentVersion.salesNumber }}</strong>.</span>
                 </div>
 
-                <!-- Invoice Paper (Matches InvoiceForm) -->
-                <div class="invoice-paper">
+                <!-- Sale Paper (Matches SaleForm) -->
+                <div class="sale-paper">
                     
                     <!-- SECTION 1: HEADER & COMPANY -->
                     <header class="section-company" style="margin-bottom: 2rem;">
@@ -427,7 +428,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                             <div class="left"><span class="label">GSTIN:</span> <span class="value">{{ currentVersion.sellerDetails?.gstin }}</span></div>
                             <div class="right">
                                 <span class="label">Sales No.</span> 
-                                <span class="value">{{ invoice.salesNumber }}</span>
+                                <span class="value">{{ sale.salesNumber }}</span>
                             </div>
                         </div>
                         <div class="row-split">
@@ -496,7 +497,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
 
                     <!-- SECTION 3B: SUMMARY TABLE (Added) -->
                     <section class="section-items" v-if="currentVersion.summaryItem || currentVersion.items.length">
-                        <div class="f-words-header">INVOICE SUMMARY</div>
+                        <div class="f-words-header">SALE SUMMARY</div>
                         <div class="table-container">
                              <table class="compact-table">
                                 <thead>
@@ -513,7 +514,7 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
                                 </thead>
                                 <tbody>
                                     <tr v-if="currentVersion.summaryItem">
-                                        <td>{{ currentVersion.summaryItem.invoiceProductName || '---' }}</td>
+                                        <td>{{ currentVersion.summaryItem.saleProductName || '---' }}</td>
                                         <td>{{ currentVersion.summaryItem.description }}</td>
                                         <td>{{ currentVersion.summaryItem.hsn }}</td>
                                         <td class="text-right">{{ currentVersion.summaryItem.numberOfBags }}</td>
@@ -707,11 +708,11 @@ const formatCurrency = (n: number | undefined) => (n || 0).toLocaleString('en-IN
 }
 
 /* Main Content */
-.invoice-content { flex: 1; display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; }
+.sale-content { flex: 1; display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; }
 .version-alert { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 0.75rem 1rem; border-radius: 6px; display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; }
 
-/* Paper Layout (Shared with InvoiceForm) */
-.invoice-paper {
+/* Paper Layout (Shared with SaleForm) */
+.sale-paper {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
     border-radius: 4px;

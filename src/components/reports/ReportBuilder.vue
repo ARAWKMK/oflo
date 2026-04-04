@@ -34,7 +34,7 @@ const metricOptions = [
     { id: 'totalAmount', name: 'Revenue (₹)' },
     { id: 'totalBags', name: 'Bags' },
     { id: 'quantity', name: 'Quantity (Kg)' },
-    { id: 'count', name: 'Invoices' },
+    { id: 'count', name: 'Sales' },
     { id: 'taxableValue', name: 'Taxable Value' }
 ];
 
@@ -88,6 +88,13 @@ const applyPreset = () => {
     }
 };
 
+// Helper: Parse YYYY-MM-DD as Local Date (midnight)
+const parseLocalDate = (dateStr: string) => {
+    if (!dateStr) return undefined;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+};
+
 const emitChange = () => {
     emit('generate', {
         xAxis: xAxis.value,
@@ -95,8 +102,8 @@ const emitChange = () => {
         compareBy: compareBy.value,
         chartType: chartType.value,
         filters: {
-            dateStart: dateStart.value ? new Date(dateStart.value) : undefined,
-            dateEnd: dateEnd.value ? new Date(dateEnd.value) : undefined,
+            dateStart: parseLocalDate(dateStart.value),
+            dateEnd: parseLocalDate(dateEnd.value),
             sellerId: selectedSellers.value.length ? selectedSellers.value : undefined,
             customerId: selectedCustomers.value.length ? selectedCustomers.value : undefined,
             productId: selectedProducts.value.length ? selectedProducts.value : undefined,
@@ -137,7 +144,7 @@ onMounted(() => {
                     <option value="week">Week</option>
                     <option value="month">Month</option>
                     <option value="financialYear">Financial Year</option>
-                    <option value="invoice">Invoice</option>
+                    <option value="sale">Sale</option>
                     <option value="customer">Customer</option>
                     <option value="product">Product</option>
                     <option value="producer">Producer</option>

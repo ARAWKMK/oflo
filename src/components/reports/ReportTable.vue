@@ -4,7 +4,7 @@
             <thead>
                 <tr>
                     <th @click="sort('label')">Group <arrow-up-down :size="12"/></th>
-                    <th @click="sort('count')" class="text-right">Invoices</th>
+                    <th @click="sort('count')" class="text-right">Sales</th>
                     <th v-if="hasProducer" class="text-left">Producer</th>
                     <th @click="sort('quantity')" class="text-right">Qty (Kg)</th>
                     <th @click="sort('totalBags')" class="text-right">Bags</th>

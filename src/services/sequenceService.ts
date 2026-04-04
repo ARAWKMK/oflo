@@ -35,8 +35,8 @@ export async function getNextMasterId(companyPrefix: string, date: Date): Promis
     const start = new Date(fiscalYear - 1, 3, 1); // April 1st of previous year
     const end = new Date(fiscalYear, 2, 31, 23, 59, 59, 999); // March 31st of fiscalYear
 
-    // Find all invoices in this fiscal year
-    const yearInvoices = await db.invoices
+    // Find all sales in this fiscal year
+    const yearSales = await db.sales
         .where('date')
         .between(start, end)
         .toArray();
@@ -49,10 +49,10 @@ export async function getNextMasterId(companyPrefix: string, date: Date): Promis
     const masterRegex = new RegExp(`Y\\d{2}-${companyPrefix}-(\\d+):G(\\d+)`);
     const globalRegex = /Y\d{2}-.*-(\d+):G(\d+)/;
 
-    yearInvoices.forEach(inv => {
-        if (inv.salesNumber) {
+    yearSales.forEach(s => {
+        if (s.salesNumber) {
             // Check for current company sequence
-            const match = inv.salesNumber.match(masterRegex);
+            const match = s.salesNumber.match(masterRegex);
             if (match) {
                 const seq = parseInt(match[1], 10);
                 if (!isNaN(seq) && seq > maxSeq) {
@@ -61,7 +61,7 @@ export async function getNextMasterId(companyPrefix: string, date: Date): Promis
             }
 
             // Check for global sequence
-            const gMatch = inv.salesNumber.match(globalRegex);
+            const gMatch = s.salesNumber.match(globalRegex);
             if (gMatch) {
                 const gSeq = parseInt(gMatch[2], 10);
                 if (!isNaN(gSeq) && gSeq > maxGSeq) {

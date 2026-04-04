@@ -12,8 +12,6 @@ import ProductsView from './views/ProductsView.vue';
 import SettingsView from './views/SettingsView.vue';
 import BackupView from './views/BackupView.vue';
 import ReportsView from './views/ReportsView.vue';
-// import InvoiceList from './components/invoices/InvoiceList.tsx';
-// import InvoiceForm from './components/invoices/InvoiceForm.tsx';
 import SalesView from './views/SalesView.vue';
 import SalesForm from './views/SalesForm.vue';
 
@@ -24,8 +22,8 @@ const router = createRouter({
         { path: '/', component: DashboardView },
         { path: '/sales', component: SalesView },
         { path: '/sales/new', component: SalesForm },
-        { path: '/sales/:invoiceNo', component: () => import('./views/SalesDetails.vue') },
-        { path: '/sales/edit/:invoiceNo', component: SalesForm },
+        { path: '/sales/:salesNumber', component: () => import('./views/SalesDetails.vue') },
+        { path: '/sales/edit/:salesNumber', component: SalesForm },
         { path: '/companies', component: CompaniesView },
         { path: '/customers', component: CustomersView },
         { path: '/products', component: ProductsView },

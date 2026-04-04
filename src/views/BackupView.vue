@@ -4,7 +4,7 @@ import BaseButton from '../components/ui/BaseButton.vue';
 import PageHeader from '../components/ui/PageHeader.vue';
 import { db } from '../db/db';
 import { ref, toRaw, computed } from 'vue';
-import { standardizeSalesData } from '../services/migrationService';
+import { normalizeData, auditRestoreData } from '../services/migrationService';
 
 import { APP_VERSION } from '../version';
 import { DB_VERSION } from '../db/db';
@@ -14,13 +14,14 @@ const restoreData = ref<any>(null); // Holds { meta, data }
 const restoreSource = ref<'v1' | 'v2'>('v2');
 const shouldClear = ref(false); // Toggle for "Wipe & Restore"
 
+
 // Selection State
 const selection = ref({
     companies: true,
     customers: true,
     products: true,
     settings: true,
-    invoices: true, // Includes Versions
+    sales: true, // Includes Versions
     fonts: true
 });
 
@@ -41,15 +42,20 @@ const backup = async () => {
             customers: await db.customers.toArray(),
             products: await db.products.toArray(),
             settings: await db.settings.toArray(),
-            invoices: await db.invoices.toArray(),
-            invoiceVersions: await db.invoiceVersions.toArray(),
+            sales: await db.sales.toArray(),
+            salesVersions: await db.salesVersions.toArray(),
             fonts: await db.fonts.toArray()
         };
 
-        // v5: Final Migration Engine (Healing on Export)
-        const { invoices, versions } = standardizeSalesData(fullData.invoices, fullData.invoiceVersions);
-        fullData.invoices = invoices;
-        fullData.invoiceVersions = versions;
+        // v5.1.7: Healing on Export (Ensure the backup file is perfectly clean v10 Sales format)
+        const normalized = normalizeData(fullData);
+        fullData.sales = normalized.sales;
+        fullData.salesVersions = normalized.versions;
+        fullData.settings = normalized.settings;
+        fullData.companies = normalized.companies;
+        fullData.customers = normalized.customers;
+        fullData.products = normalized.products;
+        fullData.fonts = normalized.fonts;
 
         const exportPayload = {
             meta: {
@@ -67,7 +73,7 @@ const backup = async () => {
         const a = document.createElement('a');
         a.href = url;
         const dateStr = new Date().toISOString().slice(0,10);
-        a.download = `oflo_backup_full_${dateStr}.json`;
+        a.download = `oflo_backup_sales_v5.1.7_${dateStr}.json`;
         a.click();
         URL.revokeObjectURL(url);
     } catch (e: any) {
@@ -109,7 +115,7 @@ const triggerRestore = () => {
                 selection.value.products = !!(d.products?.length);
                 selection.value.settings = !!(d.settings?.length);
                 selection.value.fonts = !!(d.fonts?.length);
-                selection.value.invoices = !!(d.invoices?.length || d.invoiceVersions?.length);
+                selection.value.sales = !!(d.sales?.length || d.salesVersions?.length || d.invoices?.length || d.invoiceVersions?.length);
                 
                 showRestoreModal.value = true;
             } catch (err) {
@@ -130,7 +136,7 @@ const confirmRestore = async () => {
         // Transactional Restore
         await db.transaction('rw', [
             db.companies, db.customers, db.products, 
-            db.settings, db.invoices, db.invoiceVersions, db.fonts
+            db.settings, db.sales, db.salesVersions, db.fonts
         ], async () => {
             
             // --- STEP 1: CLEAR EXISTING (IF REQUESTED) ---
@@ -140,99 +146,57 @@ const confirmRestore = async () => {
                 if (selection.value.products) await db.products.clear();
                 if (selection.value.settings) await db.settings.clear();
                 if (selection.value.fonts) await db.fonts.clear();
-                if (selection.value.invoices) {
-                    await db.invoices.clear();
-                    await db.invoiceVersions.clear();
+                if (selection.value.sales) {
+                    await db.sales.clear();
+                    await db.salesVersions.clear();
                 }
             }
 
-            // --- STEP 2: STANDARDIZE & RESTORE DATA ---
+            // --- STEP 2: NORMALIZE & RESTORE DATA ---
+            const normalized = normalizeData(rawData);
             
-            // v5/v9: Apply End-Year branding and re-indexing to incoming data
-            if (selection.value.invoices && rawData.invoices?.length) {
-                const { invoices, versions } = standardizeSalesData(rawData.invoices, rawData.invoiceVersions || []);
-                rawData.invoices = invoices;
-                rawData.invoiceVersions = versions;
-            }
-            
-            // 1. Profiles (With v5/v7 Backfills/Sanitization)
-            if (selection.value.companies && rawData.companies?.length) {
-                const fixCompanies = (list: any[]) => list.map(c => ({
-                    ...c,
-                    alias: c.alias || c.name // v7 Compatibility
-                }));
-                await db.companies.bulkPut(fixCompanies(rawData.companies));
+            // 1. Profiles
+            if (selection.value.companies && normalized.companies.length) {
+                await db.companies.bulkPut(normalized.companies);
             }
 
-            if (selection.value.customers && rawData.customers?.length) {
-                const fixCustomers = (list: any[]) => list.map(c => ({
-                    ...c,
-                    deliveryAddresses: c.deliveryAddresses || (c.deliveryAddress ? [c.deliveryAddress] : (c.address ? [c.address] : [])),
-                    enableDelivery: c.enableDelivery ?? false,
-                    invoiceProductName: c.invoiceProductName ?? ''
-                }));
-                await db.customers.bulkPut(fixCustomers(rawData.customers));
+            if (selection.value.customers && normalized.customers.length) {
+                await db.customers.bulkPut(normalized.customers);
             }
 
-            if (selection.value.products && rawData.products?.length) {
-                await db.products.bulkPut(rawData.products);
+            if (selection.value.products && normalized.products.length) {
+                await db.products.bulkPut(normalized.products);
             }
 
             // 2. Settings & Assets
-            if (selection.value.settings && rawData.settings?.length) {
-                await db.settings.bulkPut(rawData.settings);
+            if (selection.value.settings && normalized.settings.length) {
+                await db.settings.bulkPut(normalized.settings);
             }
-            if (selection.value.fonts && rawData.fonts?.length) {
-                 await db.fonts.bulkPut(rawData.fonts);
+            if (selection.value.fonts && normalized.fonts.length) {
+                 await db.fonts.bulkPut(normalized.fonts);
             }
 
-            // 3. Transactions (Invoices + Versions with Date Re-hydration)
-            if (selection.value.invoices && rawData.invoices?.length) {
-                // Fix Date Objects for Invoices
-                const fixInvoiceDates = (list: any[]) => list.map(item => ({
-                    ...item,
-                    salesNumber: item.salesNumber || item.invoiceNumber, // v9 Branding
-                    date: new Date(item.date),
-                    status: item.status || 'final'
-                }));
-
-                // Fix Date Objects and Snapshots for Versions
-                const fixVersionDates = (list: any[]) => list.map(item => ({
-                    ...item,
-                    salesNumber: item.salesNumber || item.referenceNumber, // v8 Branding
-                    date: new Date(item.date),
-                    createdAt: item.createdAt ? new Date(item.createdAt) : new Date(item.date),
-                    status: item.status || 'final',
-                    items: (item.items || []).map((i: any) => ({
-                        ...i,
-                        producerAlias: i.producerAlias || i.producerName || '' // v7 Compatibility
-                    }))
-                }));
-
-                await db.invoices.bulkPut(fixInvoiceDates(rawData.invoices));
-                
-                if (rawData.invoiceVersions?.length) {
-                    await db.invoiceVersions.bulkPut(fixVersionDates(rawData.invoiceVersions));
+            // 3. Transactions (Sales + Versions)
+            if (selection.value.sales && normalized.sales.length) {
+                await db.sales.bulkPut(normalized.sales);
+                if (normalized.versions.length) {
+                    await db.salesVersions.bulkPut(normalized.versions);
                 }
             }
         });
 
-        const isLegacy = restoreSource.value === 'v1' || !restoreData.value?.meta?.appVersion?.includes('v5');
-
-        alert(isLegacy 
-            ? 'Restore Successful! Note: This was legacy data. To finalize your numbering format, please perform one more Backup and Restore cycle now.' 
-            : 'Restore Completed Successfully!'
-        );
-        
-        showRestoreModal.value = false;
-        restoreData.value = null;
-        // Optional: Reload to reflect changes
-        window.location.reload();
+            // --- STEP 4: AUDIT DATA ---
+            await auditRestoreData();
+            
+            alert('Restore Completed Successfully! The application will now reload to apply changes.');
+            window.location.reload();
     } catch (e: any) {
         console.error(e);
         alert('Restore Failed: ' + e.message);
     }
 };
+
+
 
 const restoreMeta = computed(() => restoreData.value?.meta || {});
 </script>
@@ -246,7 +210,7 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
              <div class="icon-circle bg-primary-dim text-primary"><Download :size="24"/></div>
             <div class="content">
                 <h3>Full Backup</h3>
-                <p>Export a complete copy of your database, including all profiles, inventory, invoices, settings, and custom fonts.</p>
+                <p>Export a complete copy of your database, including all profiles, inventory, sales, settings, and custom fonts.</p>
                 <BaseButton @click="backup" class="w-full">Download Backup JSON</BaseButton>
             </div>
         </div>
@@ -303,13 +267,13 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
                 <div class="separator"></div>
 
                 <!-- Transactions -->
-                <label class="checkbox-row" :class="{ disabled: !getCount('invoices') }">
-                    <input type="checkbox" v-model="selection.invoices" :disabled="!getCount('invoices')">
+                <label class="checkbox-row" :class="{ disabled: !getCount('sales') && !getCount('invoices') }">
+                    <input type="checkbox" v-model="selection.sales" :disabled="!getCount('sales') && !getCount('invoices')">
                     <div class="row-info">
                         <span class="row-title">Sales & History</span>
                         <span class="row-count">
-                            {{ getCount('invoices') }} sales, 
-                            {{ getCount('invoiceVersions') }} versions
+                            {{ getCount('sales') || getCount('invoices') }} sales, 
+                            {{ getCount('salesVersions') || getCount('invoiceVersions') }} versions
                         </span>
                     </div>
                 </label>
@@ -356,6 +320,7 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
             </div>
         </div>
     </div>
+
 </div>
 </template>
 
@@ -604,4 +569,18 @@ const restoreMeta = computed(() => restoreData.value?.meta || {});
     from { opacity: 0; transform: translateY(-10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* Audit Report Styles */
+.audit-report-modal { max-width: 650px; }
+.report-content { padding: 1.5rem; overflow-y: auto; flex: 1; }
+.report-summary { margin-bottom: 1.5rem; color: var(--color-fg-secondary); font-size: 0.95rem; line-height: 1.5; }
+.results-list { display: flex; flex-direction: column; gap: 1rem; }
+.audit-item { padding: 1rem; border-radius: 8px; border-left: 4px solid #ccc; background: var(--color-bg-app); }
+.audit-item.warning { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.05); }
+.audit-item.error { border-left-color: #ef4444; background: rgba(239, 68, 68, 0.05); }
+
+.audit-header { display: flex; justify-content: space-between; margin-bottom: 0.4rem; }
+.audit-type { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; color: var(--color-fg-tertiary); }
+.audit-id { font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; }
+.audit-message { font-size: 0.9rem; color: var(--color-fg-primary); line-height: 1.4; }
 </style>

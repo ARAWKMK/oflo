@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, watch, onMounted, ref } from 'vue';
-import { db, type InvoiceItem } from '../db/db';
+import { db, type SaleItem } from '../db/db';
 import { getNextMasterId } from '../services/sequenceService';
 import { useRouter, useRoute } from 'vue-router';
 import { Trash2, Plus, Save, ChevronDown } from 'lucide-vue-next';
@@ -8,11 +8,11 @@ import BaseButton from '../components/ui/BaseButton.vue';
 import PageHeader from '../components/ui/PageHeader.vue';
 import { useLiveQuery } from '../composables/useLiveQuery';
 import { numberToWords } from '../utils/formatters';
-import { useInvoiceStore } from '../stores/invoiceStore';
+import { useSalesStore } from '../stores/salesStore';
 
 const router = useRouter();
 const route = useRoute();
-const store = useInvoiceStore();
+const store = useSalesStore();
 
 // Data Loading
 const products = useLiveQuery(() => db.products.toArray());
@@ -31,7 +31,7 @@ const state = reactive({
     summaryItem: {
         description: '', hsn: '', numberOfBags: 0, quantity: 0,
         unitPrice: 0, taxRate: 18, taxAmount: 0, totalAmount: 0,
-        invoiceProductName: ''
+        saleProductName: ''
     },
     items: [] as any[],
     status: 'final' 
@@ -74,9 +74,9 @@ watch(() => state.customerId, (newId) => {
             } else {
                 state.deliveryAddress = ''; 
             }
-            // Invoice Product Name (v4)
-            if (c.invoiceProductName) {
-                state.summaryItem.invoiceProductName = c.invoiceProductName;
+            // Sale Product Name
+            if (c.saleProductName) {
+                state.summaryItem.saleProductName = c.saleProductName;
             }
         }
     }
@@ -88,7 +88,7 @@ const updateNumberPreview = async () => {
     if (state.companyId) {
         const id = Number(state.companyId);
         if (!isNaN(id)) {
-            state.salesNumber = await store.generateNextInvoiceNumber(id, new Date(state.date));
+            state.salesNumber = await store.generateNextSalesNumber(id, new Date(state.date));
             state.salesNumber = `${state.salesNumber}-v1`;
         }
     } else {
@@ -102,8 +102,8 @@ watch(() => state.date, updateNumberPreview);
 // Load Data
 onMounted(async () => {
     let invId: number | undefined = undefined;
-    if (route.params.invoiceNo) {
-        const inv = await db.invoices.where('salesNumber').equals(route.params.invoiceNo as string).first();
+    if (route.params.salesNumber) {
+        const inv = await db.sales.where('salesNumber').equals(route.params.salesNumber as string).first();
         if (inv) invId = inv.id;
     } else if (route.params.id) {
         invId = Number(route.params.id);
@@ -111,14 +111,14 @@ onMounted(async () => {
 
     if (invId) {
         const verId = route.query.versionId ? Number(route.query.versionId) : undefined;
-        const inv = await db.invoices.get(invId);
+        const inv = await db.sales.get(invId);
         if (inv) {
             state.id = inv.id;
             state.salesNumber = inv.salesNumber;
             
             let ver = undefined;
-            if (verId) ver = await db.invoiceVersions.get(verId);
-            else if (inv.currentVersionId) ver = await db.invoiceVersions.get(inv.currentVersionId);
+            if (verId) ver = await db.salesVersions.get(verId);
+            else if (inv.currentVersionId) ver = await db.salesVersions.get(inv.currentVersionId);
 
             if (ver) {
                 state.companyId = ver.sellerDetails.id!;
@@ -147,7 +147,7 @@ onMounted(async () => {
                 if (ver.summaryItem) {
                     state.summaryItem = { 
                         ...ver.summaryItem,
-                        invoiceProductName: ver.summaryItem.invoiceProductName || ''
+                        saleProductName: ver.summaryItem.saleProductName || ''
                     };
                 } else {
                     performSummaryCalculation();
@@ -232,7 +232,7 @@ const performSummaryCalculation = () => {
             quantity: sumQty,
             taxAmount: 0, // Will be calc by recalculateSummary
             totalAmount: 0, // Will be calc by recalculateSummary
-            invoiceProductName: state.summaryItem.invoiceProductName || ''
+            saleProductName: state.summaryItem.saleProductName || ''
         };
     } else {
         // Partial Sync (Preserve Manual Price/Desc, Update Qty only)
@@ -301,7 +301,7 @@ const save = async () => {
         // Save snapshot of delivery address used
         buyer.deliveryAddress = state.deliveryAddress;
         
-        const finalItems: InvoiceItem[] = state.items.map(i => ({
+        const finalItems: SaleItem[] = state.items.map(i => ({
             productId: i.productId,
             name: i.name || i.description,
             description: i.description,
@@ -317,27 +317,30 @@ const save = async () => {
             producerAlias: i.producerAlias
         }));
 
-        // v5 Date Logic: Restore time precision for "Today"
+        // v5.1.6 Date Logic: Ensure Local Time to avoid UTC exclusion bugs
         const getProperDate = (d: string) => {
-            const input = new Date(d);
+            const [y, m, dNum] = d.split('-').map(Number);
+            const input = new Date(y, m - 1, dNum); // Local midnight
             const now = new Date();
+            
+            // If picking today, keep full time precision for chronological order
             if (input.toDateString() === now.toDateString()) return now;
             return input;
         };
         const finalDate = getProperDate(state.date);
 
-        await db.transaction('rw', db.invoices, db.invoiceVersions, async () => {
+        await db.transaction('rw', db.sales, db.salesVersions, async () => {
             let invId = state.id;
             let newRef = state.salesNumber;
 
             if (isEditMode.value && invId) {
-                const allVers = await db.invoiceVersions.where('invoiceId').equals(invId).toArray();
+                const allVers = await db.salesVersions.where('saleId').equals(invId).toArray();
                 const maxVer = allVers.length > 0 ? Math.max(...allVers.map(v => v.version)) : 0;
                 const nextVer = maxVer + 1;
                 newRef = `${state.salesNumber.split('-v')[0]}-v${nextVer}`;
 
-                const newVerId = await db.invoiceVersions.add({
-                    invoiceId: invId,
+                const newVerId = await db.salesVersions.add({
+                    saleId: invId,
                     version: nextVer,
                     date: finalDate,
                     sellerDetails: seller,
@@ -355,7 +358,7 @@ const save = async () => {
                     createdAt: new Date()
                 });
 
-                await db.invoices.update(invId, { 
+                await db.sales.update(invId, { 
                     currentVersionId: Number(newVerId),
                     grandTotal: finance.value.grandTotal,
                     date: finalDate,
@@ -364,9 +367,9 @@ const save = async () => {
 
             } else {
                 // Generate Unified Master ID for New Sales (YXX-Prefix-Seq:GGlobalSeq)
-                const masterId = await getNextMasterId(selectedCompany.value?.invoicePrefix || 'SAL', finalDate);
+                const masterId = await getNextMasterId(selectedCompany.value?.salesPrefix || 'SAL', finalDate);
 
-                invId = await db.invoices.add({
+                invId = await db.sales.add({
                     salesNumber: masterId,
                     customerId: state.customerId as number,
                     date: finalDate,
@@ -375,8 +378,8 @@ const save = async () => {
                     status: state.status as any
                 } as any);
 
-                const v1Id = await db.invoiceVersions.add({
-                    invoiceId: Number(invId),
+                const v1Id = await db.salesVersions.add({
+                    saleId: Number(invId),
                     version: 1,
                     date: finalDate,
                     sellerDetails: seller,
@@ -394,7 +397,7 @@ const save = async () => {
                     createdAt: new Date()
                 });
                 
-                await db.invoices.update(invId, { currentVersionId: Number(v1Id), status: state.status as any });
+                await db.sales.update(invId, { currentVersionId: Number(v1Id), status: state.status as any });
             }
         });
 
@@ -415,7 +418,7 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
 <div class="page-container">
     <PageHeader title="New Sale" :showBack="true" />
 
-    <div class="invoice-paper">
+    <div class="sale-paper">
         
         <!-- SECTION 1: HEADER & COMPANY -->
         <header class="section-company">
@@ -583,7 +586,7 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
 
         <!-- SUMMARY SECTION -->
         <section class="section-summary-item" style="margin-top: 2rem;">
-             <div class="section-header">INVOICE SUMMARY (Auto-Calculated)</div>
+             <div class="section-header">SALE SUMMARY (Auto-Calculated)</div>
              <div class="table-container">
                 <table class="premium-table">
                     <thead>
@@ -600,7 +603,7 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
                     </thead>
                     <tbody>
                         <tr>
-                            <td><input v-model="state.summaryItem.invoiceProductName" class="input-table" placeholder="e.g. HDPE GRANULES" /></td>
+                            <td><input v-model="state.summaryItem.saleProductName" class="input-table" placeholder="e.g. HDPE GRANULES" /></td>
                             <td><input v-model="state.summaryItem.description" class="input-table" /></td>
                             <td><input v-model="state.summaryItem.hsn" class="input-table" /></td>
                             <td><input type="number" v-model="state.summaryItem.numberOfBags" class="input-table text-right" /></td>
@@ -681,7 +684,7 @@ const amountInWords = computed(() => numberToWords(finance.value.grandTotal));
 <style scoped>
 .page-container { padding: 0 1rem 4rem; max-width: 1100px; margin: 0 auto; color: var(--color-fg-primary); }
 
-.invoice-paper {
+.sale-paper {
     background: var(--color-bg-card);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
